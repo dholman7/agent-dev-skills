@@ -43,8 +43,8 @@ For each finding:
 - evidence: copy the exact line(s) of code the finding is about, character for character.
 - label: issue (a defect), suggestion (a better way), nitpick (minor style), question.
 - blocking: true only for a real defect that should stop the merge.
-- suggestion: replacement text for exactly the cited line when you can name the fix,
-  otherwise an empty string.
+- suggestion: literal code that replaces exactly the cited line, indented like it, when you
+  can name the fix. Never prose or instructions; GitHub commits it as-is. Otherwise "".
 
 Report nothing rather than speculate. An empty list is a good review when the change is fine."""
 
@@ -132,6 +132,16 @@ def _locate(content: str, line: int, evidence: str) -> int | None:
     return min(hits, key=lambda n: abs(n - line)) if hits else None
 
 
+def _replaces(suggestion: str, content: str, line: int) -> bool:
+    """A GitHub suggestion replaces the commented line, so it must start at that line's
+    indentation. Catches prose written into the suggestion field; top-level lines can't be told
+    apart this way and pass."""
+    cited = content.splitlines()[line - 1]
+    indent = cited[: len(cited) - len(cited.lstrip())]
+    first = next(s for s in suggestion.splitlines() if s.strip())
+    return first[: len(first) - len(first.lstrip())] == indent
+
+
 def check_citations(
     findings: list[Finding], diffs: dict[str, FileDiff], files: dict[str, str]
 ) -> Review:
@@ -157,7 +167,13 @@ def check_citations(
             if target is None or abs(target - finding.line) > RETARGET_DISTANCE:
                 result.dropped.append((finding, "points outside the diff"))
                 continue
-            finding = finding.model_copy(update={"line": target})
+            # The suggestion was written for the quoted line; GitHub would apply it to this one.
+            finding = finding.model_copy(update={"line": target, "suggestion": ""})
+        if finding.suggestion.strip() and not _replaces(finding.suggestion, content, finding.line):
+            result.adjusted.append(
+                f"{finding.path}:{finding.line}: suggestion removed (not code for the cited line)"
+            )
+            finding = finding.model_copy(update={"suggestion": ""})
         result.findings.append(finding)
     return result
 
@@ -188,7 +204,8 @@ def verify(llm: LLM, checked: Review, diffs: dict[str, FileDiff], files: dict[st
         elif verdict["verdict"] == "retarget":
             line = verdict["line"]
             if line in diffs[finding.path].commentable:
-                result.findings.append(finding.model_copy(update={"line": line}))
+                moved = {"line": line} if line == finding.line else {"line": line, "suggestion": ""}
+                result.findings.append(finding.model_copy(update=moved))
                 result.adjusted.append(f"{finding.path}: retargeted to line {line}")
             else:
                 result.dropped.append(

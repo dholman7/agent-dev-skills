@@ -124,3 +124,30 @@ def test_a_pure_deletion_is_located_between_its_neighbors() -> None:
     assert files[PATH].added == set()
     assert files[PATH].deleted_near == {1, 2}
     assert files[PATH].changed == {1, 2}
+
+
+def test_suggestions_that_cannot_replace_the_cited_line_are_removed() -> None:
+    findings = [
+        Finding.model_validate(_finding()),  # code at the cited line's indentation: kept
+        Finding.model_validate(_finding(suggestion="Return 201 here instead.")),  # prose
+    ]
+
+    result = check_citations(findings, parse(DIFF), {PATH: AFTER})
+
+    assert [f.suggestion for f in result.findings] == ["    return 201", ""]
+    assert result.adjusted == [f"{PATH}:3: suggestion removed (not code for the cited line)"]
+    assert "suggestion" not in render(result.findings[1])
+
+
+def test_retargeting_a_finding_drops_its_suggestion() -> None:
+    before = "".join(f"    v{i} = {i}\n" for i in range(1, 13))
+    after = before.replace("    v2 = 2\n", "    v2 = 20\n")
+    diffs = parse(make("a.py", before, after))  # commentable: lines 1-5
+    finding = Finding.model_validate(
+        _finding(path="a.py", line=7, evidence="v7 = 7", suggestion="    v7 = 70")
+    )
+
+    [moved] = check_citations([finding], diffs, {"a.py": after}).findings
+
+    # It now sits on line 5; "v7 = 70" committed there would overwrite v5.
+    assert (moved.line, moved.suggestion) == (5, "")
