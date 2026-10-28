@@ -1,0 +1,52 @@
+# Harmless changes to vendor-intake-app. A good reviewer leaves these alone: any blocking issue
+# raised on them is a false alarm. Same shape as agent-eval-gate's bugs.yaml (exact replacement).
+changes:
+  - id: clean-not-found-wording
+    file: backend/src/vendor_intake/errors.py
+    old: 'return AppError(404, f"{entity}_not_found", f"{entity.capitalize()} not found")'
+    new: 'return AppError(404, f"{entity}_not_found", f"{entity.replace(''_'', '' '').capitalize()} not found")'
+
+  - id: clean-health-summary
+    file: backend/src/vendor_intake/main.py
+    old: '    @app.get("/api/health", tags=["health"])'
+    new: '    @app.get("/api/health", tags=["health"], summary="Liveness check")'
+
+  - id: clean-extra-seed-vendor
+    file: backend/src/vendor_intake/seed.py
+    old: '    ("Cobalt Facilities", VendorCategory.SERVICES, "accounts@cobalt.example"),'
+    new: "    (\"Cobalt Facilities\", VendorCategory.SERVICES, \"accounts@cobalt.example\"),\n    (\"Delta Freightworks\", VendorCategory.LOGISTICS, \"hello@deltafreight.example\"),"
+
+  - id: clean-logout-docstring
+    file: backend/src/vendor_intake/routes/auth.py
+    old: "def logout(response: Response) -> None:"
+    new: "def logout(response: Response) -> None:\n    \"\"\"Clears the session cookie. Safe to call without a session.\"\"\""
+
+  - id: clean-extract-order
+    file: backend/src/vendor_intake/repositories/vendors.py
+    old: "        rows = self.session.scalars(\n            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset)\n        )"
+    new: "        newest_first = (Vendor.created_at.desc(), Vendor.id)\n        rows = self.session.scalars(\n            query.order_by(*newest_first).limit(limit).offset(offset)\n        )"
+
+  - id: clean-submit-docstring
+    file: backend/src/vendor_intake/services/review.py
+    old: "def submit_vendor(session: Session, user: User, vendor: Vendor) -> Vendor:"
+    new: "def submit_vendor(session: Session, user: User, vendor: Vendor) -> Vendor:\n    \"\"\"Moves an editable vendor into review once every required document is extracted.\"\"\""
+
+  - id: clean-text-parser-name
+    file: backend/src/vendor_intake/services/extraction.py
+    old: "def _text(raw: str) -> tuple[str | None, float]:\n    return (raw, 0.95) if raw else (None, 0.0)"
+    new: "def _text(raw: str) -> tuple[str | None, float]:\n    value = raw\n    return (value, 0.95) if value else (None, 0.0)"
+
+  - id: clean-upload-limit-constant
+    file: backend/src/vendor_intake/config.py
+    old: "    max_upload_bytes: int = 10 * 1024 * 1024"
+    new: "    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MiB"
+
+  - id: clean-ttl-comment
+    file: backend/src/vendor_intake/config.py
+    old: "    jwt_ttl_minutes: int = 480"
+    new: "    jwt_ttl_minutes: int = 480  # one working day"
+
+  - id: clean-tenant-docstring
+    file: backend/src/vendor_intake/repositories/users.py
+    old: "    def tenant(self, tenant_id: str) -> Tenant:"
+    new: "    def tenant(self, tenant_id: str) -> Tenant:\n        \"\"\"The tenant for an authenticated user; it always exists.\"\"\""

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "dholman7-skills",
+  "description": "Dan Holman's Claude Code skills",
+  "owner": {
+    "name": "Dan Holman",
+    "url": "https://github.com/dholman7"
+  },
+  "plugins": [
+    {
+      "name": "agent-dev-skills",
+      "description": "Engineering skills for Claude Code, starting with review-loop: pull request review with verified findings and re-review",
+      "author": { "name": "Dan Holman" },
+      "category": "development",
+      "source": "./plugins/agent-dev-skills"
+    }
+  ]
+}
