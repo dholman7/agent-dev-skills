@@ -33,6 +33,16 @@ What this does and doesn't show:
 - **The harmless set is too easy to measure precision.** Even unverified reviews raised no false alarms. A harder set, with refactors that look risky but aren't, is the next addition.
 - **The misses are subtle:** a field quietly deleted from the extraction spec, a sort order flipped to descending (which can look intentional), and `<=` changed to `<` on a 30-day window.
 
+**Spot check on real pull requests.** Haiku reviewed three test-only PRs that [Storywright](https://github.com/dholman7/storywright) opened from Jira stories ([#1](https://github.com/dholman7/vendor-intake-app/pull/1)–[#3](https://github.com/dholman7/vendor-intake-app/pull/3)), twice each, without posting. Each claim was then checked by hand against the code:
+
+| Comment | Check |
+|---|---|
+| #1: the test doesn't re-read the extraction after the 403 | Correct. But its suggestion block was prose and named a route that doesn't exist. |
+| #2: the poll throws a TypeError on an error response | Wrong reasoning: `&&` short-circuits first. The real effect, a generic timeout, is a nitpick. |
+| #3: "draft vendor" in a comment is an unfounded assumption | Wrong: vendors default to `draft`, and uploads depend on it. |
+
+The two passes surfaced different comments, and the verifier dropped one speculative finding in each. So this is noisier than the harmless set suggests, which is more reason for the harder set. The prose suggestion led to a deterministic guard: a suggestion must start at the cited line's indentation, and it's removed whenever a finding moves to another line, since GitHub would apply it there.
+
 One finding came from building the eval itself: the first scoring only credited comments near *added* lines, so bugs that only delete a line could never count as caught. Deletions now mark where the line used to be, and there's a regression test.
 
 ### Use it in Claude Code
