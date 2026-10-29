@@ -1,0 +1,88 @@
+# Harmless changes that look risky: rewrites of boundaries, auth checks, tenant filters, sorting,
+# and parsing that keep behavior identical. A reviewer that pattern-matches on "touched a
+# sensitive line" raises issues here; one that reads the code doesn't. `looks_like` names the
+# trap. Each change keeps vendor-intake-app's lint, types, and tests green (check_clean.py).
+changes:
+  - id: hard-expiry-window-days
+    file: backend/src/vendor_intake/services/vendors.py
+    looks_like: the 30-day expiring-soon boundary moved
+    old: "    if expiry < today:\n        return [\"insurance_expired\"]\n    if expiry <= today + timedelta(days=EXPIRING_SOON_DAYS):"
+    new: "    if today > expiry:\n        return [\"insurance_expired\"]\n    if expiry - today <= timedelta(days=EXPIRING_SOON_DAYS):"
+
+  - id: hard-queue-two-stable-sorts
+    file: backend/src/vendor_intake/services/review.py
+    looks_like: the review queue is now ordered by submission time instead of confidence
+    old: "    return sorted(items, key=lambda i: (i.lowest_confidence, i.submitted_at or utcnow()))"
+    new: "    # Two stable sorts, secondary key first: same order as sorting on the tuple.\n    items.sort(key=lambda i: i.submitted_at or utcnow())\n    items.sort(key=lambda i: i.lowest_confidence)\n    return items"
+
+  - id: hard-vendor-get-chained-where
+    file: backend/src/vendor_intake/repositories/vendors.py
+    looks_like: the tenant filter on a vendor lookup was rewritten
+    old: "            select(Vendor).where(Vendor.id == vendor_id, Vendor.tenant_id == tenant_id)"
+    new: "            select(Vendor).where(Vendor.tenant_id == tenant_id).where(Vendor.id == vendor_id)"
+
+  - id: hard-credentials-single-path
+    file: backend/src/vendor_intake/security.py
+    looks_like: an unknown email might now authenticate against the dummy hash
+    old: "    if user is None:\n        verify_password(password, _DUMMY_HASH)\n        return False\n    return verify_password(password, user.password_hash)"
+    new: "    stored = user.password_hash if user is not None else _DUMMY_HASH\n    matches = verify_password(password, stored)\n    return matches and user is not None"
+
+  - id: hard-bearer-or-cookie
+    file: backend/src/vendor_intake/deps.py
+    looks_like: the precedence between the bearer header and the session cookie changed
+    old: "    if scheme.lower() == \"bearer\" and credentials:\n        return credentials\n    return request.cookies.get(SESSION_COOKIE)"
+    new: "    bearer = credentials if scheme.lower() == \"bearer\" and credentials else None\n    return bearer or request.cookies.get(SESSION_COOKIE)"
+
+  - id: hard-role-check-any
+    file: backend/src/vendor_intake/deps.py
+    looks_like: the role authorization check was rewritten
+    old: "        if user.role not in roles:"
+    new: "        if not any(user.role == role for role in roles):"
+
+  - id: hard-decision-not-reject
+    file: backend/src/vendor_intake/routes/review.py
+    looks_like: any decision other than "reject" now approves
+    old: "        approve=body.decision == \"approve\","
+    new: "        approve=body.decision != \"reject\",  # ReviewDecision allows only approve | reject"
+
+  - id: hard-upload-size-plus-one
+    file: backend/src/vendor_intake/services/documents.py
+    looks_like: an off-by-one on the 10 MiB upload limit
+    old: "    if size > max_bytes:"
+    new: "    if size >= max_bytes + 1:"
+
+  - id: hard-upload-type-de-morgan
+    file: backend/src/vendor_intake/services/documents.py
+    looks_like: the content-type check was inverted
+    old: "    if expected is None or declared not in (expected, GENERIC_TYPE):"
+    new: "    if not (expected is not None and declared in (expected, GENERIC_TYPE)):"
+
+  - id: hard-money-match-anchored
+    file: backend/src/vendor_intake/services/extraction.py
+    looks_like: fullmatch became match, dropping the end anchor
+    old: "    if re.fullmatch(r\"\\d+(\\.\\d{1,2})?\", cleaned):"
+    new: "    if re.match(r\"\\d+(\\.\\d{1,2})?\\Z\", cleaned):"
+
+  - id: hard-tax-id-slice
+    file: backend/src/vendor_intake/services/extraction.py
+    looks_like: the wrong slice for the last four digits
+    old: "    return (digits[-4:], 0.95) if len(digits) == 9 else (None, 0.3)"
+    new: "    return (digits[5:], 0.95) if len(digits) == 9 else (None, 0.3)"
+
+  - id: hard-parse-lines-guard
+    file: backend/src/vendor_intake/services/extraction.py
+    looks_like: lines without a colon are now handled differently
+    old: "        key, sep, value = line.partition(\":\")\n        if sep:\n            pairs[re.sub(r\"[^a-z0-9]+\", \"_\", key.strip().lower()).strip(\"_\")] = value.strip()"
+    new: "        if \":\" not in line:\n            continue\n        key, _, value = line.partition(\":\")\n        pairs[re.sub(r\"[^a-z0-9]+\", \"_\", key.strip().lower()).strip(\"_\")] = value.strip()"
+
+  - id: hard-token-ttl-seconds
+    file: backend/src/vendor_intake/security.py
+    looks_like: the session lifetime changed units
+    old: "        \"exp\": now + timedelta(minutes=ttl_minutes),"
+    new: "        \"exp\": now + timedelta(seconds=ttl_minutes * 60),"
+
+  - id: hard-scrypt-shift
+    file: backend/src/vendor_intake/security.py
+    looks_like: the password-hashing cost was changed
+    old: "_SCRYPT = {\"n\": 2**14, \"r\": 8, \"p\": 1}"
+    new: "_SCRYPT = {\"n\": 1 << 14, \"r\": 8, \"p\": 1}"

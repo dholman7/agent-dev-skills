@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--post", action="store_true", help="post the review; without it, print only")
     p.add_argument("--no-verify", action="store_true")
     e = sub.add_parser("eval")
-    e.add_argument("--bugs", type=Path, required=True, help="agent-eval-gate's bugs.yaml")
+    e.add_argument("--bugs", type=Path, help="agent-eval-gate's bugs.yaml; omit to run clean only")
     e.add_argument("--target", type=Path, required=True, help="vendor-intake-app checkout")
     e.add_argument("--clean", type=Path, default=CLEAN)
     e.add_argument("--out", type=Path, default=Path("review-eval.json"))

@@ -29,12 +29,12 @@ class Case:
     category: str
 
 
-def load_cases(bugs: Path, clean: Path, target: Path) -> list[Case]:
+def load_cases(bugs: Path | None, clean: Path, target: Path) -> list[Case]:
+    """`bugs` may be None to measure only false alarms."""
     cases = []
-    sources: tuple[tuple[Literal["bug", "clean"], Path, str], ...] = (
-        ("bug", bugs, "bugs"),
-        ("clean", clean, "changes"),
-    )
+    sources: list[tuple[Literal["bug", "clean"], Path, str]] = [("clean", clean, "changes")]
+    if bugs is not None:
+        sources.insert(0, ("bug", bugs, "bugs"))
     for kind, source, key in sources:
         for item in yaml.safe_load(source.read_text())[key]:
             before = (target / item["file"]).read_text()
@@ -74,6 +74,8 @@ def score(case: Case, result: Review) -> dict[str, Any]:
         "caught": case.kind == "bug" and _touches(result, case),
         "caught_blocking": case.kind == "bug" and _touches(result, case) and bool(blocking_issues),
         "false_alarm": case.kind == "clean" and bool(blocking_issues),
+        # Any `issue` on a harmless change claims a defect that isn't there, blocking or not.
+        "flagged": case.kind == "clean" and any(f.label == "issue" for f in result.findings),
         "comments": len(result.findings),
         "dropped": len(result.dropped),
         # Kept so scoring changes can be re-applied without paying for another run.
@@ -112,6 +114,7 @@ def run(llm: LLM, cases: list[Case], *, verify_pass: bool) -> dict[str, Any]:
                     "caught": False,
                     "caught_blocking": False,
                     "false_alarm": False,
+                    "flagged": False,
                     "comments": 0,
                     "dropped": 0,
                 }
@@ -129,6 +132,7 @@ def run(llm: LLM, cases: list[Case], *, verify_pass: bool) -> dict[str, Any]:
         "bugs_caught": rate(bugs, "caught"),
         "bugs_caught_blocking": rate(bugs, "caught_blocking"),
         "false_alarms": rate(clean, "false_alarm"),
+        "clean_flagged": rate(clean, "flagged"),
         "comments_per_clean_change": sum(r["comments"] for r in clean) / max(len(clean), 1),
         "dropped_by_checks": sum(r["dropped"] for r in rows),
         "cost_usd": round(llm.spend.cost_usd, 4),

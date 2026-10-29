@@ -30,8 +30,31 @@ What this does and doesn't show:
 
 - **Both models catch most seeded bugs.** Their intervals overlap almost entirely, so this set can't tell Opus and Haiku apart.
 - **Verification cuts noise.** On harmless changes it removed most minor comments without costing a single catch.
-- **The harmless set is too easy to measure precision.** Even unverified reviews raised no false alarms. A harder set, with refactors that look risky but aren't, is the next addition.
+- **The harmless set above is too easy to measure precision.** Even unverified reviews raised no false alarms on it, so the harder set below was added.
 - **The misses are subtle:** a field quietly deleted from the extraction spec, a sort order flipped to descending (which can look intentional), and `<=` changed to `<` on a 30-day window.
+
+**Harmless changes that look risky.** [`evals/review/clean-hard.yaml`](evals/review/clean-hard.yaml) holds 14 more harmless changes, each rewriting something a reviewer is trained to distrust while keeping behavior identical:
+
+- a tenant filter split into chained `where` calls
+- the login check folded into a single path
+- `size > max_bytes` rewritten as `size >= max_bytes + 1`
+- a content-type check rewritten with De Morgan's law
+- `fullmatch` changed to `match` with an explicit `\Z`
+- the review queue rebuilt from two stable sorts
+- `digits[-4:]` changed to `digits[5:]` behind a length-9 check
+
+Each entry names the trap it sets (`looks_like`). [`check_clean.py`](evals/review/check_clean.py) proves each change harmless: applied alone to a copy of the app, lint, strict types, all 68 backend tests, and the OpenAPI document must come out unchanged. It first applies a known-breaking control change, which must fail, so a green result can't come from the checks testing the wrong code.
+
+| Run | False alarms (blocking) | Any `issue` raised | Comments per change | Cost |
+|---|---|---|---|---|
+| Claude Opus 5.5, with verification | 0/14 (CI 0–22%) | 0/14 | 0.14 | $0.16 |
+| Claude Opus 5.5, without verification | 0/14 | 0/14 | 0.14 | $0.15 |
+| Claude Haiku 5.5, with verification | 1/14 (CI 1–31%) | 1/14 | 0.21 | $0.005 |
+
+- **Opus read past every trap.** Its two comments were fair: a non-blocking note that `!= "reject"` fails open if the schema ever loosens (it said the change was equivalent today), and a nitpick that `>= max_bytes + 1` is equivalent but harder to read. Across both harmless sets, that's 0 false alarms in 24 for Opus (CI 0–14%).
+- **Haiku fell for the slice.** It blocked `digits[5:]` as "not the last four digits", missing the length-9 guard on the same line. That's why `dev` is for iterating and `report` is for reviews people act on.
+- **Verification didn't change Opus's results here,** because Opus's first pass raised nothing it needed to drop. Its value showed on the original set and on Haiku.
+- **Building the checker found a bug in the method.** The first version shared the app's virtualenv with each copy, and `uv run` re-pointed the app's editable install at the temporary copy, breaking the real checkout once the copy was deleted. Copies now run with syncing off and the copy's source first on `PYTHONPATH`. The control change proves the copy's code is what gets tested.
 
 **Spot check on real pull requests.** Four test-only PRs that [Storywright](https://github.com/dholman7/storywright) opened from Jira stories ([#1](https://github.com/dholman7/vendor-intake-app/pull/1)–[#4](https://github.com/dholman7/vendor-intake-app/pull/4)), reviewed without posting. Every comment was then checked by hand against the code. Opus 5.5 (`report`) is the profile meant for real reviews; Haiku 5.5 (`dev`) is the cheap one for iterating, and these numbers show why:
 
@@ -52,7 +75,7 @@ What Haiku said:
 - #3: "draft vendor" is an unfounded assumption. Wrong, since vendors default to `draft`.
 - #4: the status check may race. Wrong, since the extraction is created as `pending_review` in the same transaction. Also on #4: a 422 might still store the note. Speculative, since validation fails before the handler runs.
 
-Haiku's two passes on #1–#3 surfaced different comments. On both profiles, the verifier dropped speculative findings before they shipped. The prose suggestion led to a deterministic guard: a suggestion must start at the cited line's indentation, and it's removed whenever a finding moves to another line, since GitHub would apply it there. Four PRs are a spot check, not a measurement; the harder harmless set is still the next addition.
+Haiku's two passes on #1–#3 surfaced different comments. On both profiles, the verifier dropped speculative findings before they shipped. The prose suggestion led to a deterministic guard: a suggestion must start at the cited line's indentation, and it's removed whenever a finding moves to another line, since GitHub would apply it there. Four PRs are a spot check, not a measurement; the harmless sets above are the measurement.
 
 One finding came from building the eval itself: the first scoring only credited comments near *added* lines, so bugs that only delete a line could never count as caught. Deletions now mark where the line used to be, and there's a regression test.
 
@@ -97,6 +120,7 @@ review-loop diff change.diff --root .                         # review a local d
 review-loop pr --repo owner/name --pr 42                       # print a review
 review-loop pr --repo owner/name --pr 42 --post                # post it
 review-loop eval --bugs ../agent-eval-gate/benchmarks/vendor-intake/v2/bugs.yaml --target ../vendor-intake-app
+review-loop eval --clean evals/review/clean-hard.yaml --target ../vendor-intake-app   # false alarms only
 ```
 
 `REVIEW_LOOP_PROFILE` picks the model. The CLI defaults to `dev` (Claude Haiku 5.5) for cheap local iteration, and the GitHub Action defaults to `report` (Claude Opus 5.5), the profile for reviews people act on.
@@ -104,7 +128,6 @@ review-loop eval --bugs ../agent-eval-gate/benchmarks/vendor-intake/v2/bugs.yaml
 ## Not in v1
 
 - Self-healing: an opt-in step that proposes fixes in an isolated job and applies them only after a deterministic policy check
-- A harder harmless-change set, to measure false alarms properly
 - More skills: generate-tests, investigate-ci-failure (built on [ci-context-mcp](https://github.com/dholman7/ci-context-mcp)), and review-api-changes
 
 Written independently: no code, prompts, or names come from any employer's internal tools.

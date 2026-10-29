@@ -164,3 +164,25 @@ def test_eval_builds_cases_and_scores_catches_and_false_alarms(tmp_path: Path) -
 
     assert report["bugs_caught"]["k"] == 1
     assert report["false_alarms"]["k"] == 1  # a blocking issue on a harmless change
+    assert report["clean_flagged"]["k"] == 1
+
+
+def test_eval_without_bugs_runs_only_clean_and_counts_non_blocking_issues(tmp_path: Path) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / PATH).write_text(BEFORE)
+    clean = tmp_path / "clean.yaml"
+    clean.write_text(
+        f"changes:\n  - id: c1\n    file: {PATH}\n    old: 'return 1'\n    new: 'return 1  # constant'\n"
+    )
+
+    cases = evaluate.load_cases(None, clean, tmp_path)
+    llm = Scripted(
+        {"findings": [_finding(line=8, evidence="return 1  # constant", blocking=False)]},
+        {"verdicts": [{"index": 0, "verdict": "confirm", "line": 8, "reason": "ok"}]},
+    )
+    report = evaluate.run(llm, cases, verify_pass=True)
+
+    assert [c.kind for c in cases] == ["clean"]
+    assert report["bugs_caught"]["n"] == 0
+    assert report["false_alarms"]["k"] == 0  # not blocking...
+    assert report["clean_flagged"]["k"] == 1  # ...but still a claimed defect on correct code
