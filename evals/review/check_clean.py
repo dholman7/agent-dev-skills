@@ -35,16 +35,14 @@ def check(target: Path, change: dict[str, str]) -> str | None:
             symlinks=True,
             ignore=shutil.ignore_patterns("node_modules", ".venv", "frontend", "e2e", "data"),
         )
-        (copy / "backend" / ".venv").symlink_to((target / "backend" / ".venv").resolve())
         path = copy / change["file"]
         source = path.read_text()
         if source.count(change["old"]) != 1:
             return "`old` doesn't match exactly once"
         path.write_text(source.replace(change["old"], change["new"]))
-        # The copy shares the real checkout's virtualenv. Never let uv re-sync it (that would
-        # re-point its editable install at this temporary copy); put the copy's code first instead.
-        env = {**os.environ, "UV_NO_SYNC": "1", "PYTHONPATH": str(copy / "backend" / "src")}
-        env.pop("VIRTUAL_ENV", None)
+        # No shared virtualenv: `uv run` would re-point the real checkout's editable install at
+        # this copy. The copy builds its own from uv's cache on first use (a few seconds).
+        env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
         for command in CHECKS:
             result = subprocess.run(
                 command, cwd=copy, env=env, capture_output=True, text=True, check=False
