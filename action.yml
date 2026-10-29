@@ -9,8 +9,8 @@ inputs:
     description: Token that can read the PR and post reviews (pull-requests: write).
     default: ${{ github.token }}
   profile:
-    description: dev (Claude Haiku 5.5, cheap) or report (Claude Opus 5.5).
-    default: dev
+    description: report (Claude Opus 5.5, for real reviews) or dev (Claude Haiku 5.5, cheap).
+    default: report
 
 runs:
   using: composite

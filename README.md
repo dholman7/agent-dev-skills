@@ -33,15 +33,26 @@ What this does and doesn't show:
 - **The harmless set is too easy to measure precision.** Even unverified reviews raised no false alarms. A harder set, with refactors that look risky but aren't, is the next addition.
 - **The misses are subtle:** a field quietly deleted from the extraction spec, a sort order flipped to descending (which can look intentional), and `<=` changed to `<` on a 30-day window.
 
-**Spot check on real pull requests.** Haiku reviewed three test-only PRs that [Storywright](https://github.com/dholman7/storywright) opened from Jira stories ([#1](https://github.com/dholman7/vendor-intake-app/pull/1)–[#3](https://github.com/dholman7/vendor-intake-app/pull/3)), twice each, without posting. Each claim was then checked by hand against the code:
+**Spot check on real pull requests.** Four test-only PRs that [Storywright](https://github.com/dholman7/storywright) opened from Jira stories ([#1](https://github.com/dholman7/vendor-intake-app/pull/1)–[#4](https://github.com/dholman7/vendor-intake-app/pull/4)), reviewed without posting. Every comment was then checked by hand against the code. Opus 5.5 (`report`) is the profile meant for real reviews; Haiku 5.5 (`dev`) is the cheap one for iterating, and these numbers show why:
 
-| Comment | Check |
-|---|---|
-| #1: the test doesn't re-read the extraction after the 403 | Correct. But its suggestion block was prose and named a route that doesn't exist. |
-| #2: the poll throws a TypeError on an error response | Wrong reasoning: `&&` short-circuits first. The real effect, a generic timeout, is a nitpick. |
-| #3: "draft vendor" in a comment is an unfounded assumption | Wrong: vendors default to `draft`, and uploads depend on it. |
+| Profile | Comments | Held up | Cost |
+|---|---|---|---|
+| `report`, Claude Opus 5.5, 1 pass on #1–#4 | 2 | 2 | $0.13 |
+| `dev`, Claude Haiku 5.5, 2 passes on #1–#3, 1 on #4 | 5 | 1 | $0.007 |
 
-The two passes surfaced different comments, and the verifier dropped one speculative finding in each. So this is noisier than the harmless set suggests, which is more reason for the harder set. The prose suggestion led to a deterministic guard: a suggestion must start at the cited line's indentation, and it's removed whenever a finding moves to another line, since GitHub would apply it there.
+What Opus said, both correct:
+
+- #3: the success rows only check for a 201, so a server that kept the client's declared content type would still pass. Asserting the `content_type` the API returns would test what the story actually says.
+- #4: the "stored without spaces" test reads the note from the POST response instead of re-reading it. That's minor here, because the response is the saved object, but the test's name promises more than it checks.
+
+What Haiku said:
+
+- #1: the test didn't re-read the extraction after the 403. Correct, and applied before merging, which is why Opus, reviewing the final diff, had nothing to say about it. But Haiku's suggestion block was prose naming a route that doesn't exist.
+- #2: the poll throws a TypeError on an error response. Wrong, since `&&` short-circuits first.
+- #3: "draft vendor" is an unfounded assumption. Wrong, since vendors default to `draft`.
+- #4: the status check may race. Wrong, since the extraction is created as `pending_review` in the same transaction. Also on #4: a 422 might still store the note. Speculative, since validation fails before the handler runs.
+
+Haiku's two passes on #1–#3 surfaced different comments. On both profiles, the verifier dropped speculative findings before they shipped. The prose suggestion led to a deterministic guard: a suggestion must start at the cited line's indentation, and it's removed whenever a finding moves to another line, since GitHub would apply it there. Four PRs are a spot check, not a measurement; the harder harmless set is still the next addition.
 
 One finding came from building the eval itself: the first scoring only credited comments near *added* lines, so bugs that only delete a line could never count as caught. Deletions now mark where the line used to be, and there's a regression test.
 
@@ -73,7 +84,7 @@ jobs:
       - uses: dholman7/agent-dev-skills@main
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          profile: dev   # Claude Haiku 5.5; "report" for Claude Opus 5.5
+          profile: report   # Claude Opus 5.5; "dev" for Claude Haiku 5.5 while iterating
 ```
 
 The action's own third-party dependency is pinned to a commit SHA, because it runs with write access to pull requests.
@@ -88,7 +99,7 @@ review-loop pr --repo owner/name --pr 42 --post                # post it
 review-loop eval --bugs ../agent-eval-gate/benchmarks/vendor-intake/v2/bugs.yaml --target ../vendor-intake-app
 ```
 
-`REVIEW_LOOP_PROFILE` picks the model, and `dev` (Claude Haiku 5.5) is the default.
+`REVIEW_LOOP_PROFILE` picks the model. The CLI defaults to `dev` (Claude Haiku 5.5) for cheap local iteration, and the GitHub Action defaults to `report` (Claude Opus 5.5), the profile for reviews people act on.
 
 ## Not in v1
 
