@@ -1,0 +1,87 @@
+# Ground truth for test-audit: the test-quality gaps in vendor-intake-app's e2e suite at 2db8acd,
+# the last commit before they were fixed (vendor-intake-app#6). Each was found by hand and fixed;
+# every location below was read from that commit.
+#
+# A finding hits an instance when it cites the same file, within `tolerance` lines of a listed
+# line (or anywhere in the file when no lines are listed), AND names the gap: its rule ID, or one
+# of the keywords in its rule or problem text (blind audits have no rule IDs). Each listed line is
+# one instance; a repo-wide gap marked `any_of` is one instance that any listed file satisfies.
+target: vendor-intake-app
+gap_commit: "2db8acd"
+clean_commit: "8315131"  # after #6 and two rounds of fixes test-audit prompted
+test_dir: e2e
+tolerance: 3
+gaps:
+  - id: helpers-in-specs
+    rule: PW-1
+    keywords: [helper, fixture, shared, reus, duplicat, extract]
+    at:
+      - {path: e2e/api/generated/KAN-4.spec.ts, lines: [5]}
+      - {path: e2e/ui/onboarding.spec.ts, lines: [4]}
+      - {path: e2e/ui/accessibility.spec.ts, lines: [7]}
+
+  - id: duplicated-setup
+    rule: PW-1
+    keywords: [duplicat, repeat, fixture, factory, shared, reus, copy]
+    at:
+      - {path: e2e/api/generated/KAN-1.spec.ts, range: [5, 45]}
+      - {path: e2e/api/generated/KAN-2.spec.ts, range: [5, 45]}
+
+  - id: ui-setup-through-ui
+    rule: PW-2
+    keywords: [through the api, via the api, api setup, set up via, arrange through, ui setup, slow]
+    at:
+      - {path: e2e/ui/onboarding.spec.ts, lines: [56, 67]}
+
+  - id: no-page-objects
+    rule: PW-3
+    keywords: [page object, page-object, pom]
+    any_of: true
+    at:
+      - {path: e2e/ui/onboarding.spec.ts}
+      - {path: e2e/ui/vendors.spec.ts}
+      - {path: e2e/ui/sign-in.spec.ts}
+      - {path: e2e/ui/access.spec.ts}
+
+  - id: hardcoded-credentials
+    rule: PW-4
+    keywords: [credential, password, hardcod, hard-cod]
+    at:
+      - {path: e2e/ui/onboarding.spec.ts, lines: [34, 76]}
+
+  - id: inline-type-import
+    rule: PW-6
+    keywords: [import(, inline type, type import, inline import]
+    at:
+      - {path: e2e/api/generated/KAN-4.spec.ts, lines: [6]}
+
+  - id: conditional-assertion
+    rule: PW-8
+    keywords: [conditional, "if (", branch, every path]
+    at:
+      - {path: e2e/api/generated/KAN-3.spec.ts, lines: [36]}
+
+  - id: status-without-body
+    rule: PW-9
+    keywords: [status, body]
+    at:
+      - {path: e2e/api/auth.spec.ts, lines: [12, 26, 39]}
+      - {path: e2e/api/health.spec.ts, lines: [8]}
+
+  - id: unchecked-setup
+    rule: PW-13
+    # test-audit's first run reported these as a gap no rule covered, which became PW-13. The
+    # keywords were widened after that run, which described them as "ignored" and "never verified".
+    keywords: [unchecked, not checked, never checked, ignored, discard, verif, without checking]
+    at:
+      - {path: e2e/ui/vendors.spec.ts, lines: [28, 47]}
+      - {path: e2e/ui/access.spec.ts, lines: [29]}
+      - {path: e2e/ui/accessibility.spec.ts, lines: [24, 29]}
+
+  - id: no-lint
+    rule: new
+    keywords: [lint, eslint]
+    any_of: true
+    at:
+      - {path: e2e/package.json}
+      - {path: e2e/playwright.config.ts}

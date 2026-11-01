@@ -28,7 +28,7 @@ const { extractions } = await factory.vendorInReview();
 
 **PW-2. Arrange through the API.** Build state with the factory, then drive the UI only for the steps under test. UI-driven setup is slow, flaky, and fails for reasons unrelated to the test.
 
-**PW-3. UI goes through page objects.** Locators and multi-step actions live in a page object, served as a fixture. A label change should touch one file, not every spec.
+**PW-3. UI goes through page objects** (lint). Locators, including the ones assertions use, and multi-step actions live in a page object, served as a fixture; so does navigation. A label change should touch one file, not every spec.
 
 **PW-4. No credentials in specs** (lint). Sign in through persona fixtures (`apiAs`, `signIn`, `pageAs`). A second role in a UI test gets its own signed-in page from a fixture, never a hand-rolled login.
 
@@ -41,7 +41,7 @@ const reviewer = await pageAs("reviewer");
 
 **PW-5. No fixed waits** (lint). Use web-first assertions, which retry, and `expect.poll` for background work. Never `waitForTimeout`, `networkidle`, or `{ force: true }`.
 
-**PW-6. One import** (lint). Specs import tests, fixtures, helpers, and types from the fixtures module, not from `@playwright/test` or inline `import("...")` types.
+**PW-6. One import** (lint). Specs import tests, fixtures, helpers, and types from the fixtures module, not from `@playwright/test` or inline `import("...")` types. Node built-ins are fine.
 
 **PW-7. Role, label, and text locators only** (lint). No CSS or XPath. When an element can't be found by role or label, that's an accessibility bug to fix in the app.
 
@@ -55,11 +55,13 @@ for (const [file, status] of rows) { ... if (status === 415) expect(body.error.c
 
 **PW-9. Status assertions carry the body** (lint). Use an `expectStatus(response, code)` helper that attaches the body to the failure and returns the parsed JSON. "Expected 201, received 422" alone sends the reader, or an agent, guessing.
 
-**PW-10. One behavior per test, Arrange-Act-Assert.** Mark each step with a comment. A test generated from a story carries the story's tag: `{ tag: "@KEY-12" }`.
+**PW-10. One behavior per test, Arrange-Act-Assert.** Mark each step with a comment. A test generated from a story carries the story's tag: `{ tag: "@KEY-12" }`. The exception is a journey test that follows one user flow end to end, across roles if it must: keep one per flow and say so in a comment.
 
 **PW-11. Tests don't share data.** Each test creates what it needs and uses unique names for anything with a uniqueness constraint. Assume only seeded personas exist. Tests then run in parallel and in any order.
 
 **PW-12. Assert the stored outcome.** When a story says something is saved, re-read it. A response can echo a value that was never committed.
+
+**PW-13. Check every setup step** (lint, partly). Every request made while arranging a test asserts its status, directly or inside a factory method. An unchecked setup failure surfaces later as a confusing one. Lint catches a discarded response; one that's kept but never status-checked needs review.
 
 ## 3. Checklist before handing over a test
 
@@ -80,3 +82,5 @@ Both go out as pull requests for a person to review. Never merge them automatica
 ## Provenance
 
 Most rules come from gaps found in an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite (2026-11-01): duplicated setup in six specs (PW-1), UI tests building their data through the UI (PW-2), no page objects (PW-3), hardcoded credentials (PW-4), an inline type import (PW-6), conditional assertions (PW-8), and bare status checks with unchecked setup calls (PW-9), with no lint to catch any of them. PW-12 comes from a review-loop finding on that repo's KAN-4 test, and PW-6's import check from a review-loop finding on the pull request that introduced these rules: the first detector only caught inline type imports, so a spec importing straight from `@playwright/test` passed lint. PW-5, PW-7, PW-10, and PW-11 record practices the suite already followed, so they stay followed.
+
+The test-audit agent then found what that first pass missed. Run against the pre-fix suite, it reported the ignored setup responses as a gap no rule covered, which became PW-13. Run against the suite that had just been fixed, it found ten locators still written inline in UI specs, which is why PW-3 now has a lint rule. Its last two findings on that suite were judgment calls (a Node built-in import, and the deliberate end-to-end journey test), which led to the exceptions now written into PW-6 and PW-10.

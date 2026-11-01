@@ -40,20 +40,21 @@ class LLM(Protocol):
     def call(self, system: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]: ...
 
 
-def resolve() -> tuple[str, str]:
-    profile = os.environ.get("REVIEW_LOOP_PROFILE", "dev")
+def resolve(prefix: str = "REVIEW_LOOP") -> tuple[str, str]:
+    """`<prefix>_PROFILE` picks (model, effort); `<prefix>_MODEL` / `_EFFORT` override either."""
+    profile = os.environ.get(f"{prefix}_PROFILE", "dev")
     if profile not in PROFILES:
-        raise SystemExit(f"REVIEW_LOOP_PROFILE must be one of {sorted(PROFILES)}, got {profile!r}")
+        raise SystemExit(f"{prefix}_PROFILE must be one of {sorted(PROFILES)}, got {profile!r}")
     model, effort = PROFILES[profile]
-    return os.environ.get("REVIEW_LOOP_MODEL", model), os.environ.get("REVIEW_LOOP_EFFORT", effort)
+    return os.environ.get(f"{prefix}_MODEL", model), os.environ.get(f"{prefix}_EFFORT", effort)
 
 
 class Claude:
-    def __init__(self, client: Any | None = None) -> None:
+    def __init__(self, client: Any | None = None, env_prefix: str = "REVIEW_LOOP") -> None:
         import anthropic
 
         self.client = client or anthropic.Anthropic()
-        self.model, self.effort = resolve()
+        self.model, self.effort = resolve(env_prefix)
         self.spend = Spend()
 
     def call(self, system: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:

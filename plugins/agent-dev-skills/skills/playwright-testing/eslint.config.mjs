@@ -39,6 +39,23 @@ const oneImport = [
   },
 ];
 
+const checkedSetup = {
+  selector:
+    "ExpressionStatement > AwaitExpression > CallExpression[callee.property.name=/^(get|post|put|patch|delete|fetch|head)$/]",
+  message: "PW-13: check every request's response (expectStatus, or a factory method), or a failed setup surfaces later as a confusing failure.",
+};
+
+const pageObjectsOnly = [
+  {
+    selector: "CallExpression[callee.property.name=/^getBy(Role|Label|Text|TestId|Placeholder|AltText|Title)$/]",
+    message: "PW-3: locators live in page objects (fixtures/pages.ts). Add one there if it's missing.",
+  },
+  {
+    selector: "CallExpression[callee.object.name='page'][callee.property.name=/^(goto|url)$/]",
+    message: "PW-3: navigate with a page object's goto(), so routes live in one place.",
+  },
+];
+
 const noInlineTypeImports = {
   selector: "TSImportType",
   message: "PW-6: import types from ../fixtures instead of inline import(\"...\") types.",
@@ -76,7 +93,14 @@ export default tseslint.config(
   {
     files: ["api/**/*.spec.ts"],
     rules: {
-      "no-restricted-syntax": ["error", ...sharedStepsInSpecs, ...noCredentials, noInlineTypeImports, statusWithBody],
+      "no-restricted-syntax": [
+        "error",
+        ...sharedStepsInSpecs,
+        ...noCredentials,
+        noInlineTypeImports,
+        statusWithBody,
+        checkedSetup,
+      ],
       "no-restricted-imports": oneImport,
     },
   },
@@ -89,6 +113,8 @@ export default tseslint.config(
         ...noCredentials,
         noInlineTypeImports,
         statusWithBody,
+        checkedSetup,
+        ...pageObjectsOnly,
         {
           selector: "Literal[value='/api/auth/login']",
           message: "PW-4: UI specs sign in with signIn() or pageAs(), not by posting to the login endpoint.",

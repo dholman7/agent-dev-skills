@@ -122,7 +122,7 @@ def excerpt(content: str, line: int, radius: int = EXCERPT_RADIUS) -> str:
     return "\n".join(f"{n}: {lines[n - 1]}" for n in range(start, end + 1))
 
 
-def _locate(content: str, line: int, evidence: str) -> int | None:
+def locate(content: str, line: int, evidence: str) -> int | None:
     """The line where the quoted evidence actually is, preferring the one closest to `line`."""
     wanted = [w.strip() for w in evidence.strip().splitlines() if w.strip()]
     if not wanted:
@@ -153,7 +153,7 @@ def check_citations(
         if diff is None or content is None:
             result.dropped.append((finding, "cites a file the diff doesn't change"))
             continue
-        actual = _locate(content, finding.line, finding.evidence)
+        actual = locate(content, finding.line, finding.evidence)
         if actual is None:
             result.dropped.append((finding, "the quoted code isn't in the file"))
             continue

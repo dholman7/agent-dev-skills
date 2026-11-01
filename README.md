@@ -4,6 +4,7 @@ Claude Code skills for engineering work:
 
 - **review-loop**: pull request review in which every comment is checked against the code before it reaches the author, and new commits get a re-review that re-checks earlier comments.
 - **playwright-testing**: standards for Playwright tests, each rule with an ID and, where possible, a lint rule that enforces it. See [below](#playwright-testing).
+- **test-audit**: finds where a repo's tests break those rules, or have a problem no rule covers yet, with every finding checked against the code. See [below](#test-audit).
 
 ## review-loop
 
@@ -130,15 +131,48 @@ review-loop eval --clean evals/review/clean-hard.yaml --target ../vendor-intake-
 
 ## playwright-testing
 
-Twelve rules for Playwright tests (PW-1 to PW-12), such as: shared setup lives in fixtures and a data factory instead of in spec files; set up data through the API; drive UI through page objects; no credentials in specs; no fixed waits; no conditional assertions; status checks show the response body. Seven are enforced by [`eslint.config.mjs`](plugins/agent-dev-skills/skills/playwright-testing/eslint.config.mjs), shipped next to the skill so a repo can copy it.
+Thirteen rules for Playwright tests (PW-1 to PW-13), such as: shared setup lives in fixtures and a data factory instead of in spec files; set up data through the API; drive UI through page objects; no credentials in specs; no fixed waits; no conditional assertions; status checks show the response body. Nine are enforced, one of them partly, by [`eslint.config.mjs`](plugins/agent-dev-skills/skills/playwright-testing/eslint.config.mjs), shipped next to the skill so a repo can copy it.
 
-Most rules came from real gaps (the others record practices worth keeping): an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite found duplicated setup in six specs, hardcoded credentials, conditional assertions, and no lint. That repo now follows the rules ([`e2e/AGENTS.md`](https://github.com/dholman7/vendor-intake-app/blob/main/e2e/AGENTS.md)). Linting its old suite with these rules raises 42 errors, 28 of them bare status checks; the refactored suite raises none, and still catches the same seeded bugs.
+Most rules came from real gaps (the others record practices worth keeping): an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite found duplicated setup in six specs, hardcoded credentials, conditional assertions, and no lint. That repo now follows the rules ([`e2e/AGENTS.md`](https://github.com/dholman7/vendor-intake-app/blob/main/e2e/AGENTS.md)). Linting its old suite with these rules raises 143 errors, 95 of them locators written inline in specs; the refactored suite raises none, and still catches the same seeded bugs.
 
 The skill ends with what to do when a new gap turns up: fix it, then add or sharpen a rule with a detector, both as pull requests. A repo's own `AGENTS.md` says how each rule applies there, and Claude Code, Cursor, and Storywright read it before writing tests.
+
+## test-audit
+
+Audits a repo's Playwright tests and reports each problem once per place it occurs, as a known rule broken (PW-n) or a new kind of gap with a proposed rule. Like review-loop, every finding must quote real code, and a second pass re-checks each one against the code before it's reported. With the playwright-testing standard, that second pass judges by the standard's rules rather than taste.
+
+```bash
+test-audit scan --repo ../vendor-intake-app                 # audit the working tree
+test-audit scan --repo ../vendor-intake-app --ref 2db8acd   # or any commit
+test-audit scan --repo ../vendor-intake-app --blind         # no standard: general best practice
+```
+
+`TEST_AUDIT_PROFILE` picks the model: `dev` (Claude Haiku 5.5, the default) or `report` (Claude Opus 5.5).
+
+### Results
+
+Scored against [`evals/audit/vendor-intake-2db8acd.yaml`](evals/audit/vendor-intake-2db8acd.yaml): the 22 gaps of 10 kinds in vendor-intake-app's e2e suite at `2db8acd`, the commit before they were fixed, each located by hand. A finding counts only if it cites the right file within three lines and names the gap.
+
+| Run | Gaps found | Kinds found | Cost per audit |
+|---|---|---|---|
+| Claude Opus 5.5, with the standard (3 runs) | **21/22 every run** (CI 78–99%) | 10/10 | about $0.30 |
+| Claude Opus 5.5, blind | 12/22 | 6/10 | about $0.19 |
+| Claude Haiku 5.5, with the standard | 16/22 | 8/10 | under 1 cent |
+| Claude Haiku 5.5, blind | 8/22 | 3/10 | under 1 cent |
+
+- **It found more than the hand audit did.** Eleven of Opus's twelve other findings on the same commit were real problems I had missed: setup requests whose status is never checked, an accessibility library imported directly, tests missing Arrange-Act-Assert structure, and a "stored" check that only read the response.
+- **It created a rule.** Its first run reported the ignored setup responses as a gap no rule covered. That became PW-13, with a lint rule.
+- **It checked my fix.** Run against the suite after [vendor-intake-app#6](https://github.com/dholman7/vendor-intake-app/pull/6), it reported 12 problems, 11 of which held up: ten locators still written inline in UI specs, and tests covering two behaviors. After those fixes, it found two more real ones. After that, only two judgment calls remained, and they became written exceptions in PW-6 and PW-10.
+- **The standard matters more than the model.** Blind, Opus found 12 of 22. Given the standard, it found 21, and Haiku 16.
+- **The second pass needed the standard too.** Before it saw the standard, it dropped correct findings as "style" (an inline type import, missing Arrange-Act-Assert comments), and Opus found 17 and 19 of the gaps. Once it judged by the standard's rules, Opus found 21 of 22 in all three runs.
+- **One gap is consistently missed:** a UI test that builds its data through the UI. Opus flags the suite's deliberate end-to-end journey test for that instead.
+
+The ground truth is my own hand audit, and the match on wording uses keywords. Those were widened once, after the first run described two gaps as "ignored" and "never verified". Both are noted in the YAML.
 
 ## Not in v1
 
 - Self-healing: an opt-in step that proposes fixes in an isolated job and applies them only after a deterministic policy check
+- test-audit fixing what it finds and opening the pull requests itself, on a schedule; today a person applies the fixes
 - More skills: generate-tests, investigate-ci-failure (built on [ci-context-mcp](https://github.com/dholman7/ci-context-mcp)), and review-api-changes
 
 Written independently: no code, prompts, or names come from any employer's internal tools.
