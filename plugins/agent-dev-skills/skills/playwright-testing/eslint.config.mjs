@@ -29,6 +29,16 @@ const statusWithBody = {
   message: "PW-9: use expectStatus(response, code) so a failure shows the response body.",
 };
 
+const oneImport = [
+  "error",
+  {
+    paths: [
+      { name: "@playwright/test", message: "PW-6: import test, expect, and types from ../fixtures, so the fixtures come with them." },
+      { name: "@axe-core/playwright", message: "PW-6: use the a11y fixture." },
+    ],
+  },
+];
+
 const noInlineTypeImports = {
   selector: "TSImportType",
   message: "PW-6: import types from ../fixtures instead of inline import(\"...\") types.",
@@ -65,7 +75,10 @@ export default tseslint.config(
   },
   {
     files: ["api/**/*.spec.ts"],
-    rules: { "no-restricted-syntax": ["error", ...sharedStepsInSpecs, ...noCredentials, noInlineTypeImports, statusWithBody] },
+    rules: {
+      "no-restricted-syntax": ["error", ...sharedStepsInSpecs, ...noCredentials, noInlineTypeImports, statusWithBody],
+      "no-restricted-imports": oneImport,
+    },
   },
   {
     files: ["ui/**/*.spec.ts"],
@@ -81,6 +94,7 @@ export default tseslint.config(
           message: "PW-4: UI specs sign in with signIn() or pageAs(), not by posting to the login endpoint.",
         },
       ],
+      "no-restricted-imports": oneImport,
     },
   },
 );
