@@ -1,6 +1,9 @@
 # agent-dev-skills
 
-Claude Code skills for engineering work. The first is **review-loop**: pull request review in which every comment is checked against the code before it reaches the author, and new commits get a re-review that re-checks earlier comments.
+Claude Code skills for engineering work:
+
+- **review-loop**: pull request review in which every comment is checked against the code before it reaches the author, and new commits get a re-review that re-checks earlier comments.
+- **playwright-testing**: standards for Playwright tests, each rule with an ID and, where possible, a lint rule that enforces it. See [below](#playwright-testing).
 
 ## review-loop
 
@@ -124,6 +127,14 @@ review-loop eval --clean evals/review/clean-hard.yaml --target ../vendor-intake-
 ```
 
 `REVIEW_LOOP_PROFILE` picks the model. The CLI defaults to `dev` (Claude Haiku 5.5) for cheap local iteration, and the GitHub Action defaults to `report` (Claude Opus 5.5), the profile for reviews people act on.
+
+## playwright-testing
+
+Twelve rules for Playwright tests (PW-1 to PW-12), such as: shared setup lives in fixtures and a data factory instead of in spec files; set up data through the API; drive UI through page objects; no credentials in specs; no fixed waits; no conditional assertions; status checks show the response body. Seven are enforced by [`eslint.config.mjs`](plugins/agent-dev-skills/skills/playwright-testing/eslint.config.mjs), shipped next to the skill so a repo can copy it.
+
+Most rules came from real gaps (the others record practices worth keeping): an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite found duplicated setup in six specs, hardcoded credentials, conditional assertions, and no lint. That repo now follows the rules ([`e2e/AGENTS.md`](https://github.com/dholman7/vendor-intake-app/blob/main/e2e/AGENTS.md)). Linting its old suite with these rules raises 42 errors, 28 of them bare status checks; the refactored suite raises none, and still catches the same seeded bugs.
+
+The skill ends with what to do when a new gap turns up: fix it, then add or sharpen a rule with a detector, both as pull requests. A repo's own `AGENTS.md` says how each rule applies there, and Claude Code, Cursor, and Storywright read it before writing tests.
 
 ## Not in v1
 

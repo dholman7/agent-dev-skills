@@ -1,7 +1,7 @@
 {
   "name": "agent-dev-skills",
-  "version": "0.1.0",
-  "description": "Engineering skills for Claude Code, starting with review-loop: pull request review with verified findings and re-review",
+  "version": "0.2.0",
+  "description": "Engineering skills for Claude Code: review-loop (pull request review with verified findings and re-review) and playwright-testing (test standards with lint-enforced rules)",
   "author": {
     "name": "Dan Holman",
     "url": "https://github.com/dholman7"
