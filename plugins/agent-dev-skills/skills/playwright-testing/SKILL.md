@@ -63,6 +63,15 @@ for (const [file, status] of rows) { ... if (status === 415) expect(body.error.c
 
 **PW-13. Check every setup step** (lint, partly). Every request made while arranging a test asserts its status, directly or inside a factory method. An unchecked setup failure surfaces later as a confusing one. Lint catches a discarded response; one that's kept but never status-checked needs review.
 
+**PW-14. Name controls exactly** (lint). A `getByRole` with a fixed name passes `exact: true`, in page objects as well as specs. Names match by substring by default, and frameworks add controls in development: under `next dev`, `{ name: "Next" }` also matches Next.js's "Open Next.js Dev Tools" button.
+
+```ts
+// Bad: two matches under next dev, so the click fails in strict mode
+page.getByRole("button", { name: "Next" })
+// Good
+page.getByRole("button", { name: "Next", exact: true })
+```
+
 ## 3. Checklist before handing over a test
 
 - [ ] It uses existing fixtures, factory methods, and page objects; anything missing was added there, not in the spec.
@@ -83,4 +92,4 @@ Both go out as pull requests for a person to review. Never merge them automatica
 
 Most rules come from gaps found in an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite (2026-11-01): duplicated setup in six specs (PW-1), UI tests building their data through the UI (PW-2), no page objects (PW-3), hardcoded credentials (PW-4), an inline type import (PW-6), conditional assertions (PW-8), and bare status checks with unchecked setup calls (PW-9), with no lint to catch any of them. PW-12 comes from a review-loop finding on that repo's KAN-4 test, and PW-6's import check from a review-loop finding on the pull request that introduced these rules: the first detector only caught inline type imports, so a spec importing straight from `@playwright/test` passed lint. PW-5, PW-7, PW-10, and PW-11 record practices the suite already followed, so they stay followed.
 
-The test-audit agent then found what that first pass missed. Run against the pre-fix suite, it reported the ignored setup responses as a gap no rule covered, which became PW-13. Run against the suite that had just been fixed, it found ten locators still written inline in UI specs, which is why PW-3 now has a lint rule. Its last two findings on that suite were judgment calls (a Node built-in import, and the deliberate end-to-end journey test), which led to the exceptions now written into PW-6 and PW-10.
+The test-audit agent then found what that first pass missed. Run against the pre-fix suite, it reported the ignored setup responses as a gap no rule covered, which became PW-13. Run against the suite that had just been fixed, it found ten locators still written inline in UI specs, which is why PW-3 now has a lint rule. Its last two findings on that suite were judgment calls (a Node built-in import, and the deliberate end-to-end journey test), which led to the exceptions now written into PW-6 and PW-10. PW-14 comes from agent-eval-gate's UI benchmark: a reference test's `{ name: "Next" }` also matched Next.js's dev-tools button on Linux CI.

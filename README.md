@@ -131,7 +131,7 @@ review-loop eval --clean evals/review/clean-hard.yaml --target ../vendor-intake-
 
 ## playwright-testing
 
-Thirteen rules for Playwright tests (PW-1 to PW-13), such as: shared setup lives in fixtures and a data factory instead of in spec files; set up data through the API; drive UI through page objects; no credentials in specs; no fixed waits; no conditional assertions; status checks show the response body. Nine are enforced, one of them partly, by [`eslint.config.mjs`](plugins/agent-dev-skills/skills/playwright-testing/eslint.config.mjs), shipped next to the skill so a repo can copy it.
+Fourteen rules for Playwright tests (PW-1 to PW-14), such as: shared setup lives in fixtures and a data factory instead of in spec files; set up data through the API; drive UI through page objects; no credentials in specs; no fixed waits; no conditional assertions; status checks show the response body. Ten are enforced, one of them partly, by [`eslint.config.mjs`](plugins/agent-dev-skills/skills/playwright-testing/eslint.config.mjs), shipped next to the skill so a repo can copy it.
 
 Most rules came from real gaps (the others record practices worth keeping): an audit of [vendor-intake-app](https://github.com/dholman7/vendor-intake-app)'s e2e suite found duplicated setup in six specs, hardcoded credentials, conditional assertions, and no lint. That repo now follows the rules ([`e2e/AGENTS.md`](https://github.com/dholman7/vendor-intake-app/blob/main/e2e/AGENTS.md)). Linting its old suite with these rules raises 143 errors, 95 of them locators written inline in specs; the refactored suite raises none, and still catches the same seeded bugs.
 
