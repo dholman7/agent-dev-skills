@@ -3,6 +3,10 @@
 review-loop diff FILE [--root DIR] [--no-verify]      review a local unified diff
 review-loop pr --repo OWNER/NAME --pr N [--post]      review (or re-review) a pull request
 review-loop eval --bugs BUGS.yaml --target DIR        measure catch rate and false alarms
+review-loop judge RESULTS...                          does each comment name the defect?
+review-loop controls RESULTS... --out FILE.json       the same comments vs the wrong defect
+review-loop labels RESULTS... --out FILE.md           export judged comments to label by hand
+review-loop agreement FILE.md RESULTS...              Cohen's kappa, hand labels vs the judge
 """
 
 import argparse
@@ -11,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from review_loop import evaluate, loop
+from review_loop import evaluate, judge, loop
 from review_loop.diff import parse
 from review_loop.github import GitHub
 from review_loop.llm import Claude
@@ -52,8 +56,37 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--clean", type=Path, default=CLEAN)
     e.add_argument("--out", type=Path, default=Path("review-eval.json"))
     e.add_argument("--no-verify", action="store_true")
+    j = sub.add_parser("judge", help="add judge verdicts to eval results, in place")
+    j.add_argument("results", type=Path, nargs="+")
+    c = sub.add_parser("controls", help="build negative controls: comments vs the wrong defect")
+    c.add_argument("results", type=Path, nargs="+")
+    c.add_argument("--out", type=Path, required=True)
+    x = sub.add_parser("labels", help="export judged comments to label (verdicts hidden)")
+    x.add_argument("results", type=Path, nargs="+")
+    x.add_argument("--out", type=Path, required=True)
+    x.add_argument("--sample", type=int, default=100)
+    a = sub.add_parser("agreement", help="Cohen's kappa between hand labels and the judge")
+    a.add_argument("labels", type=Path)
+    a.add_argument("results", type=Path, nargs="+")
     args = parser.parse_args(argv)
-    llm = Claude()
+
+    if args.command == "controls":
+        built = judge.controls(judge.load(args.results))
+        args.out.write_text(json.dumps(built, indent=2))
+        print(f"wrote {len(built['rows'])} controls to {args.out}")
+        return 0
+    if args.command == "labels":
+        if args.out.exists():
+            raise SystemExit(f"{args.out} exists; it may hold labels. Pick another --out.")
+        args.out.write_text(judge.export(judge.load(args.results), args.sample))
+        print(f"wrote {args.out}")
+        return 0
+    if args.command == "agreement":
+        labels = judge.read_labels(args.labels.read_text())
+        print(json.dumps(judge.agreement(judge.load(args.results), labels), indent=2))
+        return 0
+
+    llm = Claude(env_prefix="REVIEW_JUDGE") if args.command == "judge" else Claude()
 
     if args.command == "diff":
         text = args.file.read_text()
@@ -75,6 +108,11 @@ def main(argv: list[str] | None = None) -> int:
         elif outcome.review is not None:
             _print(outcome.review)
             print(loop.summary(outcome))
+    elif args.command == "judge":
+        for path in args.results:
+            results = judge.judge(llm, json.loads(path.read_text()))
+            path.write_text(json.dumps(results, indent=2))
+            print(f"{path}: identified {json.dumps(results['bugs_identified'])}")
     else:
         cases = evaluate.load_cases(args.bugs, args.clean, args.target)
         report = evaluate.run(llm, cases, verify_pass=not args.no_verify)

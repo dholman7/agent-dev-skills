@@ -22,17 +22,24 @@ review ──> check citations ──> verify ──> comment ──> (new commi
 
 ### Results
 
-Measured on 42 one-file diffs against [vendor-intake-app](https://github.com/dholman7/vendor-intake-app), each reviewed as a pull request: the 32 seeded bugs from [agent-eval-gate](https://github.com/dholman7/agent-eval-gate)'s benchmark, which it should catch, and 10 harmless changes (docstrings, comments, a constant extracted, a seed row added), which it should leave alone. Titles are neutral ("Update vendors"), so nothing hints at the defect. A bug counts as caught when an `issue` comment lands within 2 lines of the change; whether the comment names the right defect isn't scored yet.
+Measured on 42 one-file diffs against [vendor-intake-app](https://github.com/dholman7/vendor-intake-app), each reviewed as a pull request: the 32 seeded bugs from [agent-eval-gate](https://github.com/dholman7/agent-eval-gate)'s benchmark, which it should catch, and 10 harmless changes (docstrings, comments, a constant extracted, a seed row added), which it should leave alone. Titles are neutral ("Update vendors"), so nothing hints at the defect. Each model ran 3 times; [`evals/review/results/`](evals/review/results) holds every run, comment by comment.
 
-| Run | Bugs caught | False alarms | Minor comments per harmless change | Cost |
+A bug is **located** when an `issue` comment lands within 2 lines of the change. Location alone could over-credit a reviewer, since almost any `issue` near a one-line change lands there. So an LLM judge ([`judge.py`](src/review_loop/judge.py)) also decides whether that comment **names the seeded defect**, given the defect statement, the diff, and the comment.
+
+| Run (3 each) | Bugs located | False alarms | Located comment names the defect (Opus judge) | Cost per run |
 |---|---|---|---|---|
-| Claude Opus 5.5, with verification | 91% (29/32, CI 76–97%) | 0/10 | 0.0 | $0.78 |
-| Claude Haiku 5.5, with verification | 88% (28/32, CI 72–95%) | 0/10 | 0.1 | $0.023 |
-| Claude Haiku 5.5, without verification | 88% (28/32, CI 72–95%) | 0/10 | 0.3 | $0.017 |
+| Claude Opus 5.5, with verification | 91% (29/32 in all 3 runs, CI 76–97%) | 0/10 in all 3 | 29/32 in all 3 | $0.81 |
+| Claude Haiku 5.5, with verification | 29, 27, 26 of 32 | 0/10 in all 3 | 29, 27, 26 of 32 | $0.023 |
+
+An earlier single Haiku run without verification also located 28/32, with 0/10 false alarms.
+
+**Is the judge right?** A judge that answers "yes" to everything would produce the column above, so it was also given 169 **controls**: every judged comment again, paired with a *different* bug's defect statement, where the right answer is "no". The Opus judge said yes to 4 of 169 (2%), the Haiku judge to 14 (8%). Agreement with hand labels (Cohen's κ) is measured on 60 blind items, real and control mixed and unmarked, in [`evals/review/labels.md`](evals/review/labels.md): *pending*.
 
 What this does and doesn't show:
 
-- **Both models catch most seeded bugs.** Their intervals overlap almost entirely, so this set can't tell Opus and Haiku apart.
+- **Location didn't over-credit the reviewer here.** Nearly every located comment names the actual defect, by both judges (Opus: 169 of 169; Haiku: 168 of 169).
+- **Opus is steady; Haiku varies.** Opus located the same 29 bugs in every run. Haiku ranged from 26 to 29, which a single run hides.
+- **Their intervals still overlap,** so this set can't rank the two models on bugs caught. Precision, below, separates them.
 - **Verification cuts noise.** On harmless changes it removed most minor comments without costing a single catch.
 - **The harmless set above is too easy to measure precision.** Even unverified reviews raised no false alarms on it, so the harder set below was added.
 - **The misses are subtle:** a field quietly deleted from the extraction spec, a sort order flipped to descending (which can look intentional), and `<=` changed to `<` on a 30-day window.
@@ -51,12 +58,12 @@ Each entry names the trap it sets (`looks_like`). [`check_clean.py`](evals/revie
 
 | Run | False alarms (blocking) | Any `issue` raised | Comments per change | Cost |
 |---|---|---|---|---|
-| Claude Opus 5.5, with verification | 0/14 (CI 0–22%) | 0/14 | 0.14 | $0.16 |
-| Claude Opus 5.5, without verification | 0/14 | 0/14 | 0.14 | $0.15 |
-| Claude Haiku 5.5, with verification | 1/14 (CI 1–31%) | 1/14 | 0.21 | $0.005 |
+| Claude Opus 5.5, with verification | 0/14 in all 3 runs (CI 0–22% each) | 0/14 in all 3 | 0.14, 0.07, 0.07 | $0.16 |
+| Claude Opus 5.5, without verification (1 run) | 0/14 | 0/14 | 0.14 | $0.15 |
+| Claude Haiku 5.5, with verification | 2, 1, 1 of 14 | 2, 1, 1 of 14 | 0.14, 0.14, 0.21 | $0.005 |
 
-- **Opus read past every trap.** Its two comments were fair: a non-blocking note that `!= "reject"` fails open if the schema ever loosens (it said the change was equivalent today), and a nitpick that `>= max_bytes + 1` is equivalent but harder to read. Across both harmless sets, that's 0 false alarms in 24 for Opus (CI 0–14%).
-- **Haiku fell for the slice.** It blocked `digits[5:]` as "not the last four digits", missing the length-9 guard on the same line. That's why `dev` is for iterating and `report` is for reviews people act on.
+- **Opus read past every trap, every time.** Its two comments in the first run were fair: a non-blocking note that `!= "reject"` fails open if the schema ever loosens (it said the change was equivalent today), and a nitpick that `>= max_bytes + 1` is equivalent but harder to read. Across both harmless sets, Opus raised 0 false alarms in 24 changes (CI 0–14%), in each of 3 runs.
+- **Haiku fell for the slice, every run.** In all 3 runs it blocked `digits[5:]` as "not the last four digits", missing the length-9 guard on the same line, and once it also blocked the `!= "reject"` rewrite. A repeatable false alarm is what makes `dev` for iterating and `report` for reviews people act on.
 - **Verification didn't change Opus's results here,** because Opus's first pass raised nothing it needed to drop. Its value showed on the original set and on Haiku.
 - **Building the checker found a bug in the method.** The first version shared the app's virtualenv with each copy, and `uv run` re-pointed the app's editable install at the temporary copy, breaking the real checkout once the copy was deleted. Each copy now builds its own virtualenv from uv's cache, which adds a few seconds per change, and the control change proves the copy's code is what gets tested. [agent-eval-gate](https://github.com/dholman7/agent-eval-gate)'s agent workspaces had the same shared-venv pattern and got the same fix.
 

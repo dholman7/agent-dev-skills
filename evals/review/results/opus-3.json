@@ -1,0 +1,996 @@
+{
+  "verify": true,
+  "bugs_caught": {
+    "value": 0.90625,
+    "k": 29,
+    "n": 32,
+    "low": 0.7578184527161212,
+    "high": 0.9675984487016337
+  },
+  "bugs_caught_blocking": {
+    "value": 0.8125,
+    "k": 26,
+    "n": 32,
+    "low": 0.6469084479862404,
+    "high": 0.9111045531043405
+  },
+  "false_alarms": {
+    "value": 0.0,
+    "k": 0,
+    "n": 10,
+    "low": 0.0,
+    "high": 0.2775327998628892
+  },
+  "clean_flagged": {
+    "value": 0.0,
+    "k": 0,
+    "n": 10,
+    "low": 0.0,
+    "high": 0.2775327998628892
+  },
+  "comments_per_clean_change": 0.0,
+  "dropped_by_checks": 1,
+  "cost_usd": 0.8158,
+  "rows": [
+    {
+      "id": "create-vendor-returns-200",
+      "kind": "bug",
+      "category": "status_codes",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/vendors.py",
+          "line": 45,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Create endpoint status code changed from 201 to 200, breaking the API contract",
+          "discussion": "POST /vendors creates a resource, so 201 Created is the correct response. Changing it to 200 is a breaking change for clients and tests that assert on 201 (e.g., frontend success checks or integration tests). The PR gives no justification for the change.",
+          "evidence": "@router.post(\"\", status_code=200)",
+          "suggestion": "@router.post(\"\", status_code=201)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/vendors.py\n+++ b/backend/src/vendor_intake/routes/vendors.py\n@@ -42,7 +42,7 @@\n     )\n \n \n-@router.post(\"\", status_code=201)\n+@router.post(\"\", status_code=200)\n def create_vendor(\n     body: VendorCreate,\n     user: User = Depends(current_user),\n",
+      "defect": "POST /api/vendors answers 200 instead of 201"
+    },
+    {
+      "id": "vendor-name-case-sensitive",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/vendors.py",
+          "line": 39,
+          "label": "issue",
+          "blocking": true,
+          "subject": "name_key no longer lowercased on create, breaking case-insensitive uniqueness",
+          "discussion": "`update_vendor` still sets `name_key = name.lower()`, and `name_taken` most likely compares against a lowercased key. Storing the raw name on create makes the keys inconsistent. As a result, \"Acme\" and \"acme\" can both be created, and later lookups or uniqueness checks against the lowercased key will miss vendors that were created with mixed case.",
+          "evidence": "        name_key=data.name,",
+          "suggestion": "        name_key=data.name.lower(),"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/services/vendors.py\n+++ b/backend/src/vendor_intake/services/vendors.py\n@@ -36,7 +36,7 @@\n     vendor = Vendor(\n         tenant_id=user.tenant_id,\n         name=data.name,\n-        name_key=data.name.lower(),\n+        name_key=data.name,\n         category=data.category,\n         contact_email=str(data.contact_email).lower(),\n         created_by=user.id,\n",
+      "defect": "a name differing only in case is accepted as a new vendor"
+    },
+    {
+      "id": "vendor-name-unique-across-tenants",
+      "kind": "bug",
+      "category": "authorization",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/repositories/vendors.py",
+          "line": 22,
+          "label": "issue",
+          "blocking": true,
+          "subject": "name_taken no longer scopes by tenant, breaking tenant isolation",
+          "discussion": "The tenant_id filter was removed, so name uniqueness is now checked across all tenants. One tenant can no longer use a vendor name that another tenant already registered. The check also leaks to tenants whether a given vendor name exists elsewhere. The tenant_id parameter is still accepted but never used.",
+          "evidence": "            Vendor.name_key == name.lower()",
+          "suggestion": "            Vendor.tenant_id == tenant_id, Vendor.name_key == name.lower()"
+        }
+      ],
+      "path": "backend/src/vendor_intake/repositories/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/vendors.py\n+++ b/backend/src/vendor_intake/repositories/vendors.py\n@@ -19,7 +19,7 @@\n \n     def name_taken(self, tenant_id: str, name: str, exclude_id: str | None = None) -> bool:\n         query = select(Vendor.id).where(\n-            Vendor.tenant_id == tenant_id, Vendor.name_key == name.lower()\n+            Vendor.name_key == name.lower()\n         )\n         if exclude_id:\n             query = query.where(Vendor.id != exclude_id)\n",
+      "defect": "a name used by another tenant is rejected with 409"
+    },
+    {
+      "id": "vendor-tenant-leak",
+      "kind": "bug",
+      "category": "authorization",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/repositories/vendors.py",
+          "line": 17,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Vendor lookup no longer filters by tenant, so one tenant can read another tenant's vendors",
+          "discussion": "`get` still takes `tenant_id` but no longer uses it. Any caller that relies on this method to scope access will now return vendors from other tenants when given their ID. That breaks tenant isolation for every read, update, or approve path built on `get`. Every other query in this repository still filters by tenant.",
+          "evidence": "            select(Vendor).where(Vendor.id == vendor_id)",
+          "suggestion": "            select(Vendor).where(Vendor.id == vendor_id, Vendor.tenant_id == tenant_id)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/repositories/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/vendors.py\n+++ b/backend/src/vendor_intake/repositories/vendors.py\n@@ -14,7 +14,7 @@\n \n     def get(self, vendor_id: str, tenant_id: str) -> Vendor | None:\n         return self.session.scalar(\n-            select(Vendor).where(Vendor.id == vendor_id, Vendor.tenant_id == tenant_id)\n+            select(Vendor).where(Vendor.id == vendor_id)\n         )\n \n     def name_taken(self, tenant_id: str, name: str, exclude_id: str | None = None) -> bool:\n",
+      "defect": "another tenant's vendor (and its audit trail) is readable"
+    },
+    {
+      "id": "document-tenant-leak",
+      "kind": "bug",
+      "category": "authorization",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/repositories/documents.py",
+          "line": 17,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Tenant filter dropped from DocumentRepository.get, allowing cross-tenant document access",
+          "discussion": "`get` still takes `tenant_id`, but the query no longer filters on it. Any caller that passes a document ID belonging to another tenant will now get that document back, which breaks tenant isolation. Every other method in this file and in ExtractionRepository still scopes by tenant_id, so this looks like an accidental regression.",
+          "evidence": "            select(Document).where(Document.id == document_id)",
+          "suggestion": "            select(Document).where(Document.id == document_id, Document.tenant_id == tenant_id)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/repositories/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/documents.py\n+++ b/backend/src/vendor_intake/repositories/documents.py\n@@ -14,7 +14,7 @@\n \n     def get(self, document_id: str, tenant_id: str) -> Document | None:\n         return self.session.scalar(\n-            select(Document).where(Document.id == document_id, Document.tenant_id == tenant_id)\n+            select(Document).where(Document.id == document_id)\n         )\n \n     def for_vendor(self, vendor_id: str, tenant_id: str) -> list[Document]:\n",
+      "defect": "another tenant's document is readable"
+    },
+    {
+      "id": "pagination-skips-first",
+      "kind": "bug",
+      "category": "pagination",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/repositories/vendors.py",
+          "line": 44,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Off-by-one offset skips the first vendor on every page",
+          "discussion": "Using `offset + 1` drops one row per page. The first page never returns the newest vendor, and each page boundary loses a row. The caller-supplied offset already gives the correct start index, so adding 1 corrupts pagination, and `total` will disagree with the rows that can actually be reached.",
+          "evidence": "            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset + 1)",
+          "suggestion": "            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/repositories/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/vendors.py\n+++ b/backend/src/vendor_intake/repositories/vendors.py\n@@ -41,7 +41,7 @@\n             query = query.where(Vendor.status == status)\n         total = self.session.scalar(select(func.count()).select_from(query.subquery())) or 0\n         rows = self.session.scalars(\n-            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset)\n+            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset + 1)\n         )\n         return list(rows), total\n \n",
+      "defect": "each page starts one row late, so the last page is short"
+    },
+    {
+      "id": "limit-cap-raised",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/vendors.py",
+          "line": 28,
+          "label": "issue",
+          "blocking": false,
+          "subject": "Page size cap raised 10x while each row still runs its own serialization queries",
+          "discussion": "Each item goes through `vendors.to_out(session, v, today)`. That function takes the session, so it likely issues its own queries per vendor. Raising the cap from 100 to 1000 multiplies the worst-case work per request by 10. Any authenticated user can then trigger heavy DB load and slow responses. The PR gives no rationale, and nothing batches the per-row work to offset it. Keep the existing cap unless serialization is batched.",
+          "evidence": "    limit: int = Query(default=20, ge=1, le=1000),",
+          "suggestion": "    limit: int = Query(default=20, ge=1, le=100),"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/vendors.py\n+++ b/backend/src/vendor_intake/routes/vendors.py\n@@ -25,7 +25,7 @@\n def list_vendors(\n     q: str | None = Query(default=None, max_length=120),\n     status: VendorStatus | None = None,\n-    limit: int = Query(default=20, ge=1, le=100),\n+    limit: int = Query(default=20, ge=1, le=1000),\n     offset: int = Query(default=0, ge=0),\n     user: User = Depends(current_user),\n     session: Session = Depends(get_session),\n",
+      "defect": "limit=101 is accepted"
+    },
+    {
+      "id": "update-ignores-lock",
+      "kind": "bug",
+      "category": "state",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/vendors.py",
+          "line": 52,
+          "label": "issue",
+          "blocking": true,
+          "subject": "update_vendor no longer enforces the editable-status lock, so submitted/approved vendors can be modified",
+          "discussion": "Removing ensure_editable(vendor) lets callers change the name, contact email, category, and other fields of vendors that are already submitted or approved. Only DRAFT and REJECTED vendors are supposed to be editable, which is why EDITABLE_STATUSES and ensure_editable still exist. As written, an approved vendor's details could be changed after review with no re-approval. The PR doesn't say why the guard was dropped, and nothing replaces it.",
+          "evidence": "def update_vendor(session: Session, user: User, vendor: Vendor, data: VendorUpdate) -> Vendor:",
+          "suggestion": "def update_vendor(session: Session, user: User, vendor: Vendor, data: VendorUpdate) -> Vendor:\n    ensure_editable(vendor)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/services/vendors.py\n+++ b/backend/src/vendor_intake/services/vendors.py\n@@ -50,7 +50,6 @@\n \n \n def update_vendor(session: Session, user: User, vendor: Vendor, data: VendorUpdate) -> Vendor:\n-    ensure_editable(vendor)\n     changes = data.model_dump(exclude_unset=True, exclude_none=True)\n     if \"name\" in changes:\n         _ensure_name_free(session, user.tenant_id, changes[\"name\"], exclude=vendor.id)\n",
+      "defect": "a vendor in review can be edited"
+    },
+    {
+      "id": "update-not-audited",
+      "kind": "bug",
+      "category": "audit",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/vendors.py",
+          "line": 62,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Audit condition inverted: real updates are no longer audited, and empty updates are logged",
+          "discussion": "After this change, an update that modifies fields writes no `vendor.updated` audit record. An empty no-op update writes one with `fields: []`. That loses the audit trail for every actual vendor change.",
+          "evidence": "    if not changes:",
+          "suggestion": "    if changes:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/services/vendors.py\n+++ b/backend/src/vendor_intake/services/vendors.py\n@@ -59,7 +59,7 @@\n         changes[\"contact_email\"] = str(changes[\"contact_email\"]).lower()\n     for field, value in changes.items():\n         setattr(vendor, field, value)\n-    if changes:\n+    if not changes:\n         AuditRepository(session).record(\n             tenant_id=user.tenant_id,\n             vendor_id=vendor.id,\n",
+      "defect": "editing a vendor records no vendor.updated event"
+    },
+    {
+      "id": "contact-email-unvalidated",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/schemas.py",
+          "line": 58,
+          "label": "issue",
+          "blocking": true,
+          "subject": "VendorCreate.contact_email no longer validates email format",
+          "discussion": "Changing EmailStr to plain str removes format validation when a vendor is created. Any string is now accepted, including an empty one, and gets stored as the contact email. VendorUpdate still uses EmailStr, so create and update now disagree: a value accepted at creation would be rejected by an update. The LoginRequest comment explains why login uses a plain string, but that reasoning does not apply to vendor creation, and the PR gives no justification.",
+          "evidence": "    contact_email: str",
+          "suggestion": "    contact_email: EmailStr"
+        }
+      ],
+      "path": "backend/src/vendor_intake/schemas.py",
+      "diff": "--- a/backend/src/vendor_intake/schemas.py\n+++ b/backend/src/vendor_intake/schemas.py\n@@ -55,7 +55,7 @@\n class VendorCreate(BaseModel):\n     name: VendorName\n     category: VendorCategory\n-    contact_email: EmailStr\n+    contact_email: str\n \n \n class VendorUpdate(BaseModel):\n",
+      "defect": "an invalid contact email is accepted"
+    },
+    {
+      "id": "upload-not-audited",
+      "kind": "bug",
+      "category": "audit",
+      "caught": true,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/documents.py",
+          "line": 78,
+          "label": "issue",
+          "blocking": false,
+          "subject": "Renaming the audit action splits the audit history and may break consumers",
+          "discussion": "Audit rows already stored with `document.uploaded` keep that name, while new uploads will be recorded as `document.added`. Anything that filters, labels, or tests on `document.uploaded` will silently stop matching new uploads. That includes audit log UIs, reports, test assertions and exports. The PR has no migration for existing rows and no matching consumer updates. The new name also breaks the past-tense convention the other events use (`document.extracted`, `document.failed`). Keep the original name, or rename it together with a data migration and consumer updates.",
+          "evidence": "        action=\"document.added\",",
+          "suggestion": "        action=\"document.uploaded\","
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/services/documents.py\n+++ b/backend/src/vendor_intake/services/documents.py\n@@ -75,7 +75,7 @@\n         tenant_id=user.tenant_id,\n         vendor_id=vendor.id,\n         actor_id=user.id,\n-        action=\"document.uploaded\",\n+        action=\"document.added\",\n         details={\"document_id\": document_id, \"kind\": kind, \"filename\": document.filename},\n     )\n     session.commit()\n",
+      "defect": "uploads are recorded as document.added instead of document.uploaded"
+    },
+    {
+      "id": "coverage-field-dropped",
+      "kind": "bug",
+      "category": "extraction",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/extraction.py",
+          "line": 48,
+          "label": "question",
+          "blocking": false,
+          "subject": "Insurance certificates no longer extract `coverage_amount`, and `_money` is now unused",
+          "discussion": "With this change, insurance-certificate extraction no longer produces `coverage_amount`. `_money` was its only parser and is now dead code. The PR has no description, so it's unclear whether dropping this field is intended. Any downstream code that reads `fields[\"coverage_amount\"]` would now get nothing \u2014 for example, a minimum-coverage check or a review UI. That could silently skip a coverage validation rather than send the document to manual review. If the removal is intentional, delete `_money` and update any consumers and tests. Otherwise, restore the spec entry.",
+          "evidence": "    DocumentKind.INSURANCE_CERTIFICATE: {",
+          "suggestion": ""
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/extraction.py",
+      "diff": "--- a/backend/src/vendor_intake/services/extraction.py\n+++ b/backend/src/vendor_intake/services/extraction.py\n@@ -48,7 +48,6 @@\n     DocumentKind.INSURANCE_CERTIFICATE: {\n         \"insurer\": (\"insurer\", _text),\n         \"policy_number\": (\"policy_number\", _text),\n-        \"coverage_amount\": (\"coverage_amount\", _money),\n         \"expiry_date\": (\"expiry_date\", _date),\n     },\n     DocumentKind.CONTRACT: {\n",
+      "defect": "insurance extractions have no coverage_amount field"
+    },
+    {
+      "id": "unparseable-date-confident",
+      "kind": "bug",
+      "category": "extraction",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/extraction.py",
+          "line": 27,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Unparseable dates now report high confidence (0.9) with a null value",
+          "discussion": "A date that fails to parse produces no value, but it now carries 0.9 confidence, higher than a successfully parsed MM/DD/YYYY date (0.85). `lowest_confidence` drives routing to manual review. Documents with garbled expiry or effective dates would skip review and be treated as confidently extracted, even though the date is missing. This is inconsistent with `_money` and `_tax_id_last4`, which return 0.3 on failure.",
+          "evidence": "    return None, 0.9",
+          "suggestion": "    return None, 0.3"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/extraction.py",
+      "diff": "--- a/backend/src/vendor_intake/services/extraction.py\n+++ b/backend/src/vendor_intake/services/extraction.py\n@@ -24,7 +24,7 @@\n             return datetime.strptime(raw, fmt).date().isoformat(), confidence\n         except ValueError:\n             continue\n-    return None, 0.3\n+    return None, 0.9\n \n \n def _money(raw: str) -> tuple[str | None, float]:\n",
+      "defect": "an unparseable date gets high confidence"
+    },
+    {
+      "id": "empty-file-accepted",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/documents.py",
+          "line": 44,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Empty-file check no longer rejects zero-byte uploads",
+          "discussion": "A size can never be negative, so `size < 0` is always false and the check never fires. Zero-byte uploads are now accepted. They get stored, and extraction then fails on them or produces nothing. The error code and message still say 'empty_file', which shows the intent was to reject size 0.",
+          "evidence": "    if size < 0:",
+          "suggestion": "    if size <= 0:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/services/documents.py\n+++ b/backend/src/vendor_intake/services/documents.py\n@@ -41,7 +41,7 @@\n     if expected is None or declared not in (expected, GENERIC_TYPE):\n         allowed = \", \".join(sorted(CONTENT_TYPES))\n         raise AppError(415, \"unsupported_type\", f\"Upload a file with one of: {allowed}\")\n-    if size == 0:\n+    if size < 0:\n         raise AppError(422, \"empty_file\", \"The uploaded file is empty\")\n     return expected\n \n",
+      "defect": "an empty upload is accepted"
+    },
+    {
+      "id": "upload-limit-plus-one",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/documents.py",
+          "line": 37,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Off-by-one lets files one byte over the limit through the size check",
+          "discussion": "This check now accepts a file of exactly max_bytes + 1 bytes. That breaks the advertised limit (\"Files must be {max_bytes} bytes or smaller\"). Any test asserting rejection at max_bytes + 1 will fail. There is no apparent reason for the change.",
+          "evidence": "    if size > max_bytes + 1:",
+          "suggestion": "    if size > max_bytes:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/services/documents.py\n+++ b/backend/src/vendor_intake/services/documents.py\n@@ -34,7 +34,7 @@\n \n def validate_upload(filename: str, declared_type: str | None, size: int, max_bytes: int) -> str:\n     \"\"\"Returns the canonical content type, inferred from the extension.\"\"\"\n-    if size > max_bytes:\n+    if size > max_bytes + 1:\n         raise AppError(413, \"file_too_large\", f\"Files must be {max_bytes} bytes or smaller\")\n     expected = CONTENT_TYPES.get(Path(filename).suffix.lower())\n     declared = (declared_type or GENERIC_TYPE).split(\";\")[0].strip().lower()\n",
+      "defect": "a file one byte over 10 MiB is accepted"
+    },
+    {
+      "id": "upload-limit-rejects-exact",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/documents.py",
+          "line": 37,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Off-by-one: files of exactly max_bytes are now rejected despite message saying 'or smaller'",
+          "discussion": "The error message promises files of max_bytes bytes are accepted, but the new `>=` check rejects a file whose size equals the limit. This contradicts the documented limit and breaks uploads that were previously valid.",
+          "evidence": "    if size >= max_bytes:",
+          "suggestion": "    if size > max_bytes:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/services/documents.py\n+++ b/backend/src/vendor_intake/services/documents.py\n@@ -34,7 +34,7 @@\n \n def validate_upload(filename: str, declared_type: str | None, size: int, max_bytes: int) -> str:\n     \"\"\"Returns the canonical content type, inferred from the extension.\"\"\"\n-    if size > max_bytes:\n+    if size >= max_bytes:\n         raise AppError(413, \"file_too_large\", f\"Files must be {max_bytes} bytes or smaller\")\n     expected = CONTENT_TYPES.get(Path(filename).suffix.lower())\n     declared = (declared_type or GENERIC_TYPE).split(\";\")[0].strip().lower()\n",
+      "defect": "a file of exactly 10 MiB is rejected"
+    },
+    {
+      "id": "upload-ignores-lock",
+      "kind": "bug",
+      "category": "state",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/documents.py",
+          "line": 59,
+          "label": "issue",
+          "blocking": true,
+          "subject": "upload_document no longer checks that the vendor is editable, so documents can be attached to locked or submitted vendors.",
+          "discussion": "This PR removes the `ensure_editable(vendor)` guard. Now any user can upload documents to a vendor that is submitted, approved, or otherwise locked. That bypasses the workflow state machine and changes records that should be frozen. The import of `ensure_editable` is still in place, which suggests the guard was dropped by accident. Nothing in the PR justifies removing it.",
+          "evidence": ") -> Document:\n    document_id = new_id()",
+          "suggestion": ""
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/documents.py",
+      "diff": "--- a/backend/src/vendor_intake/services/documents.py\n+++ b/backend/src/vendor_intake/services/documents.py\n@@ -57,7 +57,6 @@\n     content_type: str,\n     data: bytes,\n ) -> Document:\n-    ensure_editable(vendor)\n     document_id = new_id()\n     document = Document(\n         id=document_id,\n",
+      "defect": "documents can be added to a vendor in review"
+    },
+    {
+      "id": "missing-kinds-truncated",
+      "kind": "bug",
+      "category": "validation",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/review.py",
+          "line": 51,
+          "label": "issue",
+          "blocking": true,
+          "subject": "missing_kinds now reports only the first missing document kind",
+          "discussion": "Truncating to one element means the 409 response's missing_kinds lists only one kind even when several are missing. Clients will think a single upload remains and end up iterating submit attempts. The emptiness check still works, but the function's contract and its docstring (\"Kinds lacking an extracted document\") are broken for every caller.",
+          "evidence": "    return sorted(kind.value for kind in DocumentKind if kind not in ready)[:1]",
+          "suggestion": "    return sorted(kind.value for kind in DocumentKind if kind not in ready)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -48,7 +48,7 @@\n         for doc, extraction in latest_extractions(session, vendor)\n         if extraction.status != ExtractionStatus.REJECTED\n     }\n-    return sorted(kind.value for kind in DocumentKind if kind not in ready)\n+    return sorted(kind.value for kind in DocumentKind if kind not in ready)[:1]\n \n \n def submit_vendor(session: Session, user: User, vendor: Vendor) -> Vendor:\n",
+      "defect": "only the first missing document kind is reported"
+    },
+    {
+      "id": "queue-order-reversed",
+      "kind": "bug",
+      "category": "ordering",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/review.py",
+          "line": 92,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Review queue now puts highest-confidence, newest submissions first",
+          "discussion": "Adding `reverse=True` flips both parts of the sort key. Before this change, the queue showed the lowest-confidence extractions first, which are the ones that most need a human look, and broke ties by oldest submission (FIFO). Now the riskiest extractions sink to the bottom and older vendors wait behind newer ones. The `or utcnow()` fallback was meant to push vendors without a submission time to the end; reversed, it moves them to the top. The PR gives no rationale. If only one part of the order was meant to change, negate that component instead of reversing the whole tuple.",
+          "evidence": "    return sorted(items, key=lambda i: (i.lowest_confidence, i.submitted_at or utcnow()), reverse=True)",
+          "suggestion": "    return sorted(items, key=lambda i: (i.lowest_confidence, i.submitted_at or utcnow()))"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -89,7 +89,7 @@\n                 extractions=[extraction_out(ext, DocumentKind(doc.kind)) for doc, ext in pending],\n             )\n         )\n-    return sorted(items, key=lambda i: (i.lowest_confidence, i.submitted_at or utcnow()))\n+    return sorted(items, key=lambda i: (i.lowest_confidence, i.submitted_at or utcnow()), reverse=True)\n \n \n def _check_insurance_approvable(extraction: Extraction, today: date) -> None:\n",
+      "defect": "the most confident vendor is listed first"
+    },
+    {
+      "id": "member-can-review",
+      "kind": "bug",
+      "category": "authorization",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/review.py",
+          "line": 12,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Ordinary members can now approve or reject extractions on the review endpoints.",
+          "discussion": "The `reviewer` dependency guards both `/review-queue` and the `/extractions/{id}/decision` endpoint. Adding `Role.MEMBER` lets any tenant member approve or reject extractions. That bypasses the reviewer/admin separation of duties, so someone could approve their own submissions. The PR gives no rationale for this, and no test covers the authorization change.",
+          "evidence": "reviewer = require_roles(Role.MEMBER, Role.REVIEWER, Role.ADMIN)",
+          "suggestion": "reviewer = require_roles(Role.REVIEWER, Role.ADMIN)"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/review.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/review.py\n+++ b/backend/src/vendor_intake/routes/review.py\n@@ -9,7 +9,7 @@\n from vendor_intake.services import review\n \n router = APIRouter(tags=[\"review\"])\n-reviewer = require_roles(Role.REVIEWER, Role.ADMIN)\n+reviewer = require_roles(Role.MEMBER, Role.REVIEWER, Role.ADMIN)\n \n \n @router.get(\"/review-queue\")\n",
+      "defect": "members can open the review queue"
+    },
+    {
+      "id": "approval-not-audited",
+      "kind": "bug",
+      "category": "audit",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/review.py",
+          "line": 145,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Vendor approval no longer writes a `vendor.approved` audit record",
+          "discussion": "The old check `!= IN_REVIEW` logged every vendor status transition, both APPROVED and REJECTED. The new check only matches REJECTED. When the last pending extraction is approved and the vendor moves to APPROVED, nothing is written to the audit trail. That is a silent compliance regression for the most important decision on a vendor.",
+          "evidence": "    if vendor.status == VendorStatus.REJECTED:",
+          "suggestion": "    if vendor.status != VendorStatus.IN_REVIEW:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -142,7 +142,7 @@\n         ext.status == ExtractionStatus.APPROVED for _, ext in latest_extractions(session, vendor)\n     ):\n         vendor.status = VendorStatus.APPROVED\n-    if vendor.status != VendorStatus.IN_REVIEW:\n+    if vendor.status == VendorStatus.REJECTED:\n         audit.record(\n             tenant_id=user.tenant_id,\n             vendor_id=vendor.id,\n",
+      "defect": "approving the last extraction records no vendor.approved event"
+    },
+    {
+      "id": "reject-note-optional",
+      "kind": "bug",
+      "category": "validation",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 1,
+      "findings": [],
+      "path": "backend/src/vendor_intake/schemas.py",
+      "diff": "--- a/backend/src/vendor_intake/schemas.py\n+++ b/backend/src/vendor_intake/schemas.py\n@@ -113,7 +113,7 @@\n class ReviewDecision(BaseModel):\n     decision: Literal[\"approve\", \"reject\"]\n     # validate_default: an omitted note must still trip the reject rule below.\n-    note: str | None = Field(default=None, max_length=1000, validate_default=True)\n+    note: str | None = Field(default=None, max_length=1000, validate_default=False)\n \n     @field_validator(\"note\")\n     @classmethod\n",
+      "defect": "rejecting without a note is accepted"
+    },
+    {
+      "id": "expiry-comparison-inverted",
+      "kind": "bug",
+      "category": "dates",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/review.py",
+          "line": 99,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Insurance expiry check is inverted, so valid certificates are rejected and expired ones are approved.",
+          "discussion": "With `expiry > today`, any certificate that expires in the future raises `insurance_expired` and cannot be approved. A certificate that has already expired passes the check and can be approved. This reverses the business rule, and the error message (\"expired on {expiry}\") would name a future date.",
+          "evidence": "    if expiry > today:",
+          "suggestion": "    if expiry < today:"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -96,7 +96,7 @@\n     expiry = field_date(extraction.fields, \"expiry_date\")\n     if expiry is None:\n         raise AppError(409, \"insurance_expiry_missing\", \"Confirm the expiry date before approving\")\n-    if expiry < today:\n+    if expiry > today:\n         raise AppError(409, \"insurance_expired\", f\"The insurance certificate expired on {expiry}\")\n \n \n",
+      "defect": "an insurance certificate that expired yesterday can be approved"
+    },
+    {
+      "id": "expiring-window-excludes-day-30",
+      "kind": "bug",
+      "category": "dates",
+      "caught": true,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/vendors.py",
+          "line": 88,
+          "label": "issue",
+          "blocking": false,
+          "subject": "Off-by-one: insurance expiring exactly EXPIRING_SOON_DAYS from today is no longer flagged",
+          "discussion": "The `<=` to `<` change means a certificate expiring exactly 30 days from today gets no `insurance_expiring_soon` flag. It drops straight from no flag to flagged at 29 days, shrinking the warning window by a day. The PR gives no rationale and updates no tests, so this looks like an unintended regression in the inclusive 'within 30 days' rule.",
+          "evidence": "    if expiry < today + timedelta(days=EXPIRING_SOON_DAYS):",
+          "suggestion": "    if expiry <= today + timedelta(days=EXPIRING_SOON_DAYS):"
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/services/vendors.py\n+++ b/backend/src/vendor_intake/services/vendors.py\n@@ -85,7 +85,7 @@\n         return []\n     if expiry < today:\n         return [\"insurance_expired\"]\n-    if expiry <= today + timedelta(days=EXPIRING_SOON_DAYS):\n+    if expiry < today + timedelta(days=EXPIRING_SOON_DAYS):\n         return [\"insurance_expiring_soon\"]\n     return []\n \n",
+      "defect": "a certificate expiring in exactly 30 days is not flagged"
+    },
+    {
+      "id": "submit-audit-misnamed",
+      "kind": "bug",
+      "category": "audit",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/services/review.py",
+          "line": 67,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Renaming the audit action to `vendor.submit` breaks the audit log's naming and history",
+          "discussion": "Every other audit action in this module is past tense: `vendor.approved`, `vendor.rejected` and `extraction.approved`/`rejected`, all derived from status values. Existing rows store `vendor.submitted`. After this change, submissions are logged under two different action names. Any consumer that filters or displays on `vendor.submitted` (timelines, reports, tests) will silently miss new submissions. The PR gives no reason for the rename and includes no migration of existing records.",
+          "evidence": "        tenant_id=user.tenant_id, vendor_id=vendor.id, actor_id=user.id, action=\"vendor.submit\"",
+          "suggestion": "        tenant_id=user.tenant_id, vendor_id=vendor.id, actor_id=user.id, action=\"vendor.submitted\""
+        }
+      ],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -64,7 +64,7 @@\n     vendor.status = VendorStatus.IN_REVIEW\n     vendor.submitted_at = utcnow()\n     AuditRepository(session).record(\n-        tenant_id=user.tenant_id, vendor_id=vendor.id, actor_id=user.id, action=\"vendor.submitted\"\n+        tenant_id=user.tenant_id, vendor_id=vendor.id, actor_id=user.id, action=\"vendor.submit\"\n     )\n     session.commit()\n     return vendor\n",
+      "defect": "submitting records vendor.submit instead of vendor.submitted"
+    },
+    {
+      "id": "bad-credentials-403",
+      "kind": "bug",
+      "category": "status_codes",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/auth.py",
+          "line": 35,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Failed login now returns 403 instead of 401, which breaks the API contract.",
+          "discussion": "A bad email or password is an authentication failure, so 401 is the correct status. 403 means an authenticated caller lacks permission. Clients and frontend interceptors that treat 401 as \"redirect to login / show bad credentials\" will now misbehave, and any tests asserting 401 will break. The PR gives no reason for the change.",
+          "evidence": "        raise AppError(403, \"invalid_credentials\", \"Email or password is incorrect\")",
+          "suggestion": "        raise AppError(401, \"invalid_credentials\", \"Email or password is incorrect\")"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -32,7 +32,7 @@\n ) -> LoginResponse:\n     user = UserRepository(session).by_email(str(body.email))\n     if not check_credentials(user, body.password) or user is None:\n-        raise AppError(401, \"invalid_credentials\", \"Email or password is incorrect\")\n+        raise AppError(403, \"invalid_credentials\", \"Email or password is incorrect\")\n     token = issue_token(user, settings.jwt_secret, settings.jwt_ttl_minutes)\n     response.set_cookie(\n         SESSION_COOKIE,\n",
+      "defect": "failed sign-in answers 403 instead of 401"
+    },
+    {
+      "id": "unknown-email-distinct-error",
+      "kind": "bug",
+      "category": "authorization",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/auth.py",
+          "line": 35,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Login now reveals whether an email is registered (user enumeration)",
+          "discussion": "Unknown emails now get a distinct error code and message (`unknown_email`), while wrong passwords get `invalid_credentials`. An attacker can use this to enumerate valid accounts and then target them with credential stuffing or phishing. Both failures should return the same generic response. Response timing also differs, because check_credentials is skipped when the user is missing.",
+          "evidence": "        raise AppError(401, \"unknown_email\", \"No account uses that email\")",
+          "suggestion": "        raise AppError(401, \"invalid_credentials\", \"Email or password is incorrect\")"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -31,7 +31,9 @@\n     settings: Settings = Depends(get_settings),\n ) -> LoginResponse:\n     user = UserRepository(session).by_email(str(body.email))\n-    if not check_credentials(user, body.password) or user is None:\n+    if user is None:\n+        raise AppError(401, \"unknown_email\", \"No account uses that email\")\n+    if not check_credentials(user, body.password):\n         raise AppError(401, \"invalid_credentials\", \"Email or password is incorrect\")\n     token = issue_token(user, settings.jwt_secret, settings.jwt_ttl_minutes)\n     response.set_cookie(\n",
+      "defect": "an unknown email gets a different error code than a wrong password"
+    },
+    {
+      "id": "session-cookie-not-httponly",
+      "kind": "bug",
+      "category": "security",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/auth.py",
+          "line": 41,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Session JWT cookie is now readable by JavaScript (httponly disabled)",
+          "discussion": "Setting httponly=False lets any script on the origin read the session token. One XSS bug would then let an attacker steal full session credentials and replay them until the token expires. The PR gives no reason for the change. The frontend already gets `access_token` in the response body if it needs the token.",
+          "evidence": "        httponly=False,",
+          "suggestion": "        httponly=True,"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -38,7 +38,7 @@\n         SESSION_COOKIE,\n         token,\n         max_age=settings.jwt_ttl_minutes * 60,\n-        httponly=True,\n+        httponly=False,\n         samesite=\"lax\",\n         secure=settings.cookie_secure,\n     )\n",
+      "defect": "the session cookie is readable from JavaScript"
+    },
+    {
+      "id": "logout-keeps-cookie",
+      "kind": "bug",
+      "category": "security",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/auth.py",
+          "line": 50,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Logout no longer clears the session cookie, so users stay authenticated after logging out.",
+          "discussion": "The `delete_cookie` call was replaced instead of supplemented. Logout now returns 204 but leaves the httponly session JWT in the browser. Every later request is still authenticated until the token expires, which breaks logout on shared devices.",
+          "evidence": "    response.headers[\"cache-control\"] = \"no-store\"",
+          "suggestion": "    response.delete_cookie(SESSION_COOKIE, httponly=True, samesite=\"lax\")\n    response.headers[\"cache-control\"] = \"no-store\""
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -47,7 +47,7 @@\n \n @router.post(\"/auth/logout\", status_code=204)\n def logout(response: Response) -> None:\n-    response.delete_cookie(SESSION_COOKIE, httponly=True, samesite=\"lax\")\n+    response.headers[\"cache-control\"] = \"no-store\"\n \n \n @router.get(\"/me\")\n",
+      "defect": "signing out leaves the session cookie in place"
+    },
+    {
+      "id": "unauthenticated-code-wrong",
+      "kind": "bug",
+      "category": "contract",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/deps.py",
+          "line": 53,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Machine-readable error code for missing auth changed from `not_authenticated` to `unauthorized`",
+          "discussion": "The error code is part of the API contract. Clients may branch on `not_authenticated` to trigger the sign-in flow, and existing tests may assert on it. Any such client or test silently breaks after this rename. The PR title ('Update deps') doesn't mention the contract change, and the diff updates no clients or tests to match.",
+          "evidence": "        raise AppError(401, \"unauthorized\", \"Sign in to continue\")",
+          "suggestion": "        raise AppError(401, \"not_authenticated\", \"Sign in to continue\")"
+        }
+      ],
+      "path": "backend/src/vendor_intake/deps.py",
+      "diff": "--- a/backend/src/vendor_intake/deps.py\n+++ b/backend/src/vendor_intake/deps.py\n@@ -50,7 +50,7 @@\n ) -> User:\n     token = _token_from(request)\n     if token is None:\n-        raise AppError(401, \"not_authenticated\", \"Sign in to continue\")\n+        raise AppError(401, \"unauthorized\", \"Sign in to continue\")\n     claims = decode_token(token, settings.jwt_secret)\n     user = UserRepository(session).get(claims[\"sub\"], claims[\"tid\"]) if claims else None\n     if user is None:\n",
+      "defect": "missing sessions report code unauthorized instead of not_authenticated"
+    },
+    {
+      "id": "profile-tenant-name-wrong",
+      "kind": "bug",
+      "category": "contract",
+      "caught": true,
+      "caught_blocking": true,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 1,
+      "dropped": 0,
+      "findings": [
+        {
+          "path": "backend/src/vendor_intake/routes/auth.py",
+          "line": 22,
+          "label": "issue",
+          "blocking": true,
+          "subject": "Tenant name is populated with the tenant id",
+          "discussion": "`name=tenant.id` puts the tenant's id into the name field. Every login and /me response will now return the id where clients expect the tenant's display name. If id is not a string, TenantOut validation may also fail.",
+          "evidence": "        tenant=TenantOut(id=tenant.id, name=tenant.id),",
+          "suggestion": "        tenant=TenantOut(id=tenant.id, name=tenant.name),"
+        }
+      ],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -19,7 +19,7 @@\n         email=user.email,\n         name=user.name,\n         role=user.role,\n-        tenant=TenantOut.model_validate(tenant),\n+        tenant=TenantOut(id=tenant.id, name=tenant.id),\n     )\n \n \n",
+      "defect": "the profile shows the tenant id where the tenant name belongs"
+    },
+    {
+      "id": "audit-order-reversed",
+      "kind": "bug",
+      "category": "ordering",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/repositories/audit.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/audit.py\n+++ b/backend/src/vendor_intake/repositories/audit.py\n@@ -34,6 +34,6 @@\n             select(AuditEvent, User)\n             .join(User, User.id == AuditEvent.actor_id)\n             .where(AuditEvent.vendor_id == vendor_id, AuditEvent.tenant_id == tenant_id)\n-            .order_by(AuditEvent.id)\n+            .order_by(AuditEvent.id.desc())\n         )\n         return [(event, user) for event, user in rows]\n",
+      "defect": "audit events are listed newest first"
+    },
+    {
+      "id": "clean-not-found-wording",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/errors.py",
+      "diff": "--- a/backend/src/vendor_intake/errors.py\n+++ b/backend/src/vendor_intake/errors.py\n@@ -18,7 +18,7 @@\n \n \n def not_found(entity: str) -> AppError:\n-    return AppError(404, f\"{entity}_not_found\", f\"{entity.capitalize()} not found\")\n+    return AppError(404, f\"{entity}_not_found\", f\"{entity.replace('_', ' ').capitalize()} not found\")\n \n \n def _envelope(code: str, message: str, **extra: Any) -> dict[str, Any]:\n",
+      "defect": ""
+    },
+    {
+      "id": "clean-health-summary",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/main.py",
+      "diff": "--- a/backend/src/vendor_intake/main.py\n+++ b/backend/src/vendor_intake/main.py\n@@ -38,7 +38,7 @@\n     app.state.today = today or (lambda: utcnow().date())\n     install_error_handlers(app)\n \n-    @app.get(\"/api/health\", tags=[\"health\"])\n+    @app.get(\"/api/health\", tags=[\"health\"], summary=\"Liveness check\")\n     def health() -> dict[str, str]:\n         return {\"status\": \"ok\"}\n \n",
+      "defect": ""
+    },
+    {
+      "id": "clean-extra-seed-vendor",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/seed.py",
+      "diff": "--- a/backend/src/vendor_intake/seed.py\n+++ b/backend/src/vendor_intake/seed.py\n@@ -37,6 +37,7 @@\n     (\"Harborline Logistics\", VendorCategory.LOGISTICS, \"ops@harborline.example\"),\n     (\"Brightwire Software\", VendorCategory.SOFTWARE, \"legal@brightwire.example\"),\n     (\"Cobalt Facilities\", VendorCategory.SERVICES, \"accounts@cobalt.example\"),\n+    (\"Delta Freightworks\", VendorCategory.LOGISTICS, \"hello@deltafreight.example\"),\n ]\n \n \n",
+      "defect": ""
+    },
+    {
+      "id": "clean-logout-docstring",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/routes/auth.py",
+      "diff": "--- a/backend/src/vendor_intake/routes/auth.py\n+++ b/backend/src/vendor_intake/routes/auth.py\n@@ -47,6 +47,7 @@\n \n @router.post(\"/auth/logout\", status_code=204)\n def logout(response: Response) -> None:\n+    \"\"\"Clears the session cookie. Safe to call without a session.\"\"\"\n     response.delete_cookie(SESSION_COOKIE, httponly=True, samesite=\"lax\")\n \n \n",
+      "defect": ""
+    },
+    {
+      "id": "clean-extract-order",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/repositories/vendors.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/vendors.py\n+++ b/backend/src/vendor_intake/repositories/vendors.py\n@@ -40,8 +40,9 @@\n         if status:\n             query = query.where(Vendor.status == status)\n         total = self.session.scalar(select(func.count()).select_from(query.subquery())) or 0\n+        newest_first = (Vendor.created_at.desc(), Vendor.id)\n         rows = self.session.scalars(\n-            query.order_by(Vendor.created_at.desc(), Vendor.id).limit(limit).offset(offset)\n+            query.order_by(*newest_first).limit(limit).offset(offset)\n         )\n         return list(rows), total\n \n",
+      "defect": ""
+    },
+    {
+      "id": "clean-submit-docstring",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/services/review.py",
+      "diff": "--- a/backend/src/vendor_intake/services/review.py\n+++ b/backend/src/vendor_intake/services/review.py\n@@ -52,6 +52,7 @@\n \n \n def submit_vendor(session: Session, user: User, vendor: Vendor) -> Vendor:\n+    \"\"\"Moves an editable vendor into review once every required document is extracted.\"\"\"\n     ensure_editable(vendor)\n     missing = missing_kinds(session, vendor)\n     if missing:\n",
+      "defect": ""
+    },
+    {
+      "id": "clean-text-parser-name",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/services/extraction.py",
+      "diff": "--- a/backend/src/vendor_intake/services/extraction.py\n+++ b/backend/src/vendor_intake/services/extraction.py\n@@ -15,7 +15,8 @@\n \n \n def _text(raw: str) -> tuple[str | None, float]:\n-    return (raw, 0.95) if raw else (None, 0.0)\n+    value = raw\n+    return (value, 0.95) if value else (None, 0.0)\n \n \n def _date(raw: str) -> tuple[str | None, float]:\n",
+      "defect": ""
+    },
+    {
+      "id": "clean-upload-limit-constant",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/config.py",
+      "diff": "--- a/backend/src/vendor_intake/config.py\n+++ b/backend/src/vendor_intake/config.py\n@@ -15,7 +15,7 @@\n     storage_dir: Path = Path(\"./data/uploads\")\n     jwt_secret: str = DEV_JWT_SECRET\n     jwt_ttl_minutes: int = 480\n-    max_upload_bytes: int = 10 * 1024 * 1024\n+    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MiB\n     # Simulated extraction latency so the UI exercises its polling path.\n     extraction_delay_seconds: float = 1.0\n     cookie_secure: bool = False\n",
+      "defect": ""
+    },
+    {
+      "id": "clean-ttl-comment",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/config.py",
+      "diff": "--- a/backend/src/vendor_intake/config.py\n+++ b/backend/src/vendor_intake/config.py\n@@ -14,7 +14,7 @@\n     database_url: str = \"sqlite:///./data/vendor_intake.db\"\n     storage_dir: Path = Path(\"./data/uploads\")\n     jwt_secret: str = DEV_JWT_SECRET\n-    jwt_ttl_minutes: int = 480\n+    jwt_ttl_minutes: int = 480  # one working day\n     max_upload_bytes: int = 10 * 1024 * 1024\n     # Simulated extraction latency so the UI exercises its polling path.\n     extraction_delay_seconds: float = 1.0\n",
+      "defect": ""
+    },
+    {
+      "id": "clean-tenant-docstring",
+      "kind": "clean",
+      "category": "clean",
+      "caught": false,
+      "caught_blocking": false,
+      "false_alarm": false,
+      "flagged": false,
+      "comments": 0,
+      "dropped": 0,
+      "findings": [],
+      "path": "backend/src/vendor_intake/repositories/users.py",
+      "diff": "--- a/backend/src/vendor_intake/repositories/users.py\n+++ b/backend/src/vendor_intake/repositories/users.py\n@@ -17,6 +17,7 @@\n         )\n \n     def tenant(self, tenant_id: str) -> Tenant:\n+        \"\"\"The tenant for an authenticated user; it always exists.\"\"\"\n         tenant = self.session.get(Tenant, tenant_id)\n         if tenant is None:\n             raise LookupError(f\"Tenant {tenant_id} missing for an authenticated user\")\n",
+      "defect": ""
+    }
+  ]
+}

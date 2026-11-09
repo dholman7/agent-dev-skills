@@ -27,6 +27,9 @@ class Case:
     diff: str
     after: str
     category: str
+    # What the seeded bug breaks (bugs.yaml's expected_failure); the judge checks comments
+    # against it. Empty for clean changes.
+    defect: str = ""
 
 
 def load_cases(bugs: Path | None, clean: Path, target: Path) -> list[Case]:
@@ -49,37 +52,46 @@ def load_cases(bugs: Path | None, clean: Path, target: Path) -> list[Case]:
                     make(item["file"], before, after),
                     after,
                     item.get("category", "clean"),
+                    item.get("expected_failure", ""),
                 )
             )
     return cases
 
 
-def _touches(result: Review, case: Case) -> bool:
-    """An issue on, or within a couple of lines of, what the change added or deleted."""
-    changed = parse(case.diff)[case.path].changed
-    return any(
-        f.label == "issue"
-        and f.path == case.path
-        and any(abs(f.line - n) <= LINE_TOLERANCE for n in changed)
-        for f in result.findings
-    )
+def touching(findings: list[dict[str, Any]], path: str, diff: str) -> list[int]:
+    """Indexes of `issue` findings on, or within a couple of lines of, what the change touched."""
+    changed = parse(diff)[path].changed
+    return [
+        i
+        for i, f in enumerate(findings)
+        if f["label"] == "issue"
+        and f["path"] == path
+        and any(abs(f["line"] - n) <= LINE_TOLERANCE for n in changed)
+    ]
 
 
 def score(case: Case, result: Review) -> dict[str, Any]:
     blocking_issues = [f for f in result.findings if f.label == "issue" and f.blocking]
+    findings = [f.model_dump() for f in result.findings]
+    located = case.kind == "bug" and bool(touching(findings, case.path, case.diff))
     return {
         "id": case.id,
         "kind": case.kind,
         "category": case.category,
-        "caught": case.kind == "bug" and _touches(result, case),
-        "caught_blocking": case.kind == "bug" and _touches(result, case) and bool(blocking_issues),
+        # Location only: an issue comment near the change. `review-loop judge` adds `identified`,
+        # whether a comment there names the defect.
+        "caught": located,
+        "caught_blocking": located and bool(blocking_issues),
         "false_alarm": case.kind == "clean" and bool(blocking_issues),
         # Any `issue` on a harmless change claims a defect that isn't there, blocking or not.
         "flagged": case.kind == "clean" and any(f.label == "issue" for f in result.findings),
         "comments": len(result.findings),
         "dropped": len(result.dropped),
         # Kept so scoring changes can be re-applied without paying for another run.
-        "findings": [f.model_dump() for f in result.findings],
+        "findings": findings,
+        "path": case.path,
+        "diff": case.diff,
+        "defect": case.defect,
     }
 
 

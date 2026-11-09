@@ -6,5 +6,7 @@ __pycache__/
 .coverage
 .aeg-cache/
 results/
+# Published eval runs: the evidence behind the README's numbers.
+!evals/review/results/
 traces/
 .DS_Store
