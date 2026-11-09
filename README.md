@@ -22,7 +22,7 @@ review ──> check citations ──> verify ──> comment ──> (new commi
 
 ### Results
 
-Measured on 42 one-file pull requests to [vendor-intake-app](https://github.com/dholman7/vendor-intake-app): the 32 seeded bugs from [agent-eval-gate](https://github.com/dholman7/agent-eval-gate)'s benchmark, which it should catch, and 10 harmless changes (docstrings, comments, a constant extracted, a seed row added), which it should leave alone. PR titles are neutral, so nothing hints at the defect.
+Measured on 42 one-file diffs against [vendor-intake-app](https://github.com/dholman7/vendor-intake-app), each reviewed as a pull request: the 32 seeded bugs from [agent-eval-gate](https://github.com/dholman7/agent-eval-gate)'s benchmark, which it should catch, and 10 harmless changes (docstrings, comments, a constant extracted, a seed row added), which it should leave alone. Titles are neutral ("Update vendors"), so nothing hints at the defect. A bug counts as caught when an `issue` comment lands within 2 lines of the change; whether the comment names the right defect isn't scored yet.
 
 | Run | Bugs caught | False alarms | Minor comments per harmless change | Cost |
 |---|---|---|---|---|

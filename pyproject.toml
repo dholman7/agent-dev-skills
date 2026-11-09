@@ -1,6 +1,6 @@
 [project]
 name = "agent-dev-skills"
-version = "0.1.0"
+version = "0.2.0"
 description = "Claude Code skills for engineering work, starting with review-loop: PR review with verified findings"
 license = "MIT"
 requires-python = ">=3.13"
