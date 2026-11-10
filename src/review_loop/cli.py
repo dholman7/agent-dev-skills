@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("agreement", help="Cohen's kappa between hand labels and the judge")
     a.add_argument("labels", type=Path)
     a.add_argument("results", type=Path, nargs="+")
+    a.add_argument(
+        "--exclude", nargs="*", default=[], help="label ids to leave out, e.g. ones seen unblinded"
+    )
     args = parser.parse_args(argv)
 
     if args.command == "controls":
@@ -83,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "agreement":
         labels = judge.read_labels(args.labels.read_text())
+        unknown = sorted(set(args.exclude) - set(labels))
+        if unknown:
+            raise SystemExit(f"--exclude names ids not in {args.labels}: {unknown}")
+        labels = {k: v for k, v in labels.items() if k not in args.exclude}
         print(json.dumps(judge.agreement(judge.load(args.results), labels), indent=2))
         return 0
 

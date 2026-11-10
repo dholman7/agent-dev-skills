@@ -33,7 +33,19 @@ A bug is **located** when an `issue` comment lands within 2 lines of the change.
 
 An earlier single Haiku run without verification also located 28/32, with 0/10 false alarms.
 
-**Is the judge right?** A judge that answers "yes" to everything would produce the column above, so it was also given 169 **controls**: every judged comment again, paired with a *different* bug's defect statement, where the right answer is "no". The Opus judge said yes to 4 of 169 (2%), the Haiku judge to 14 (8%). Agreement with hand labels (Cohen's κ) is measured on 60 blind items, real and control mixed and unmarked, in [`evals/review/labels.md`](evals/review/labels.md): *pending*.
+**Is the judge right?** A judge that answers "yes" to everything would produce the column above, so it was also given 169 **controls**: every judged comment again, paired with a *different* bug's defect statement, where the right answer is "no". The Opus judge said yes to 4 of 169 (2%), the Haiku judge to 14 (8%). It was then checked against hand labels on 60 blind items, real and control mixed and unmarked, in [`evals/review/labels.md`](evals/review/labels.md). The labeler saw the defect, the diff, and the comment, with no verdicts, run names, or sign of which items were controls. Three items were shown unblinded while the task was being explained, so they're left out:
+
+| Judge | Cohen's κ (57 blind items) | Agreement | Human yes, judge no | Human no, judge yes |
+|---|---|---|---|---|
+| Claude Opus 5.5 (`report`) | **0.86** | 93% (53/57) | 4 | 0 |
+| Claude Haiku 5.5 (`dev`) | 0.75 | 88% (50/57) | 4 | 3 |
+
+```bash
+review-loop agreement evals/review/labels.md evals/review/judged/opus/*.json \
+  --exclude item-2bb93ab552 item-497d70489b item-28a5ecc4ad
+```
+
+All four Opus disagreements are controls the labeler marked yes. On review, three pair a comment with a plainly unrelated defect, so they're labeling slips. The fourth is a near miss: two different authentication bugs (403-for-401 and a renamed error code). κ is reported on the labels as given, not adjusted. The Opus judge is the one the table above uses; at 0.86 its verdicts can stand in for a person's on this task.
 
 What this does and doesn't show:
 
@@ -132,9 +144,13 @@ review-loop pr --repo owner/name --pr 42                       # print a review
 review-loop pr --repo owner/name --pr 42 --post                # post it
 review-loop eval --bugs ../agent-eval-gate/benchmarks/vendor-intake/v2/bugs.yaml --target ../vendor-intake-app
 review-loop eval --clean evals/review/clean-hard.yaml --target ../vendor-intake-app   # false alarms only
+review-loop judge results.json                                # does each located comment name the defect?
+review-loop controls results.json --out controls.json         # the same comments vs the wrong defect
+review-loop labels results.json controls.json --out labels.md --sample 60   # blind file to hand-label
+review-loop agreement labels.md results.json controls.json    # Cohen's kappa, hand labels vs judge
 ```
 
-`REVIEW_LOOP_PROFILE` picks the model. The CLI defaults to `dev` (Claude Haiku 5.5) for cheap local iteration, and the GitHub Action defaults to `report` (Claude Opus 5.5), the profile for reviews people act on.
+`REVIEW_LOOP_PROFILE` picks the model, and `REVIEW_JUDGE_PROFILE` picks the judge's. The CLI defaults to `dev` (Claude Haiku 5.5) for cheap local iteration, and the GitHub Action defaults to `report` (Claude Opus 5.5), the profile for reviews people act on.
 
 ## playwright-testing
 
