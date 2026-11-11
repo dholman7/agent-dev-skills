@@ -96,3 +96,88 @@ class Claude:
         except json.JSONDecodeError as exc:
             raise LLMError(f"response was not valid JSON: {exc}") from exc
         return data
+
+
+# Claude Code bills an API key when it finds one; without one it uses the claude.ai login.
+STRIPPED_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+# Without this, Claude Code resends the whole prompt uncached for a side request.
+ADDED_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+CLAUDE_TIMEOUT_S = 600
+
+
+class ClaudeCode:
+    """The same call through headless Claude Code (`claude -p`), billed to a Claude login.
+
+    `--safe-mode` drops every customization (CLAUDE.md, skills, plugins, hooks, MCP servers),
+    and there are no tools. Claude Code adds a short preamble and has no refusal fallback;
+    its cost is a list-price estimate a subscription doesn't bill.
+    """
+
+    def __init__(self, env_prefix: str = "REVIEW_LOOP", binary: str | None = None) -> None:
+        self.model, self.effort = resolve(env_prefix)
+        self.binary = binary or os.environ.get("REVIEW_LOOP_CLAUDE", "claude")
+        self.spend = Spend()
+
+    def call(self, system: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        env = {k: v for k, v in os.environ.items() if k not in STRIPPED_ENV} | ADDED_ENV
+        with tempfile.TemporaryDirectory(prefix="review-loop-") as tmp:
+            system_file = Path(tmp) / "system.md"
+            system_file.write_text(system)
+            command = [
+                self.binary, "-p",
+                "--model", self.model,
+                "--effort", self.effort,
+                "--output-format", "json",
+                "--json-schema", json.dumps(schema),
+                "--system-prompt-file", str(system_file),
+                "--tools", "",
+                "--safe-mode",
+                "--setting-sources", "",
+                "--strict-mcp-config",
+                "--no-session-persistence",
+            ]  # fmt: skip
+            try:
+                done = subprocess.run(
+                    command,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    cwd=tmp,
+                    timeout=CLAUDE_TIMEOUT_S,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise LLMError(f"claude -p timed out after {CLAUDE_TIMEOUT_S}s") from exc
+        try:
+            result: dict[str, Any] = json.loads(done.stdout)
+        except json.JSONDecodeError as exc:
+            detail = (done.stderr or done.stdout).strip()[-300:]
+            raise LLMError(f"claude -p printed no JSON result: {detail}") from exc
+        for model, usage in (result.get("modelUsage") or {}).items():
+            cached = usage.get("cacheReadInputTokens", 0) + usage.get("cacheCreationInputTokens", 0)
+            self.spend.input_tokens += usage.get("inputTokens", 0) + cached
+            self.spend.output_tokens += usage.get("outputTokens", 0)
+            self.spend.cost_usd += usage.get("costUSD", 0.0)
+            self.spend.models.add(model)
+        if result.get("stop_reason") == "refusal":
+            raise LLMError("the model declined the request")
+        if result.get("is_error") or result.get("subtype") != "success":
+            raise LLMError(f"claude -p {result.get('subtype')}: {str(result.get('result'))[:300]}")
+        data = result.get("structured_output")
+        if not isinstance(data, dict):
+            raise LLMError("claude -p returned no structured output")
+        return data
+
+
+def make_llm(env_prefix: str = "REVIEW_LOOP") -> "Claude | ClaudeCode":
+    """REVIEW_LOOP_TRANSPORT picks who bills: `api` (the default, and CI's) or `claude-code`."""
+    transport = os.environ.get("REVIEW_LOOP_TRANSPORT", "api")
+    if transport == "claude-code":
+        return ClaudeCode(env_prefix)
+    if transport != "api":
+        raise SystemExit(f"REVIEW_LOOP_TRANSPORT must be api or claude-code, got {transport!r}")
+    return Claude(env_prefix=env_prefix)
