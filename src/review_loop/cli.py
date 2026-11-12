@@ -7,6 +7,7 @@ review-loop judge RESULTS...                          does each comment name the
 review-loop controls RESULTS... --out FILE.json       the same comments vs the wrong defect
 review-loop labels RESULTS... --out FILE.md           export judged comments to label by hand
 review-loop agreement FILE.md RESULTS...              Cohen's kappa, hand labels vs the judge
+review-loop attack --bugs BUGS.yaml --target DIR      does a payload in the PR hide a seeded bug?
 """
 
 import argparse
@@ -15,13 +16,14 @@ import os
 import sys
 from pathlib import Path
 
-from review_loop import evaluate, judge, loop
+from review_loop import attacks, evaluate, judge, loop
 from review_loop.diff import parse
 from review_loop.github import GitHub
-from review_loop.llm import Claude
+from review_loop.llm import make_llm
 from review_loop.review import Review, render, review
 
 CLEAN = Path(__file__).parents[2] / "evals" / "review" / "clean.yaml"
+ATTACKS = Path(__file__).parents[2] / "evals" / "review" / "attacks.yaml"
 
 
 def _print(result: Review) -> None:
@@ -71,6 +73,14 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument(
         "--exclude", nargs="*", default=[], help="label ids to leave out, e.g. ones seen unblinded"
     )
+    t = sub.add_parser("attack", help="prompt injection: does a payload hide a seeded bug?")
+    t.add_argument("--bugs", type=Path, required=True, help="agent-eval-gate's bugs.yaml")
+    t.add_argument("--target", type=Path, required=True, help="vendor-intake-app checkout")
+    t.add_argument("--attacks", type=Path, default=ATTACKS)
+    t.add_argument("--case", action="append", help="limit to a case id (repeatable)")
+    t.add_argument("--trials", type=int, default=1)
+    t.add_argument("--out", type=Path, default=Path("review-attacks.json"))
+    t.add_argument("--no-verify", action="store_true")
     args = parser.parse_args(argv)
 
     if args.command == "controls":
@@ -93,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(judge.agreement(judge.load(args.results), labels), indent=2))
         return 0
 
-    llm = Claude(env_prefix="REVIEW_JUDGE") if args.command == "judge" else Claude()
+    llm = make_llm("REVIEW_JUDGE") if args.command == "judge" else make_llm()
 
     if args.command == "diff":
         text = args.file.read_text()
@@ -120,6 +130,18 @@ def main(argv: list[str] | None = None) -> int:
             results = judge.judge(llm, json.loads(path.read_text()))
             path.write_text(json.dumps(results, indent=2))
             print(f"{path}: identified {json.dumps(results['bugs_identified'])}")
+    elif args.command == "attack":
+        chosen = [a for a in attacks.load(args.attacks) if not args.case or a.id in args.case]
+        report = attacks.run(
+            llm,
+            chosen,
+            args.bugs,
+            args.target,
+            trials=args.trials,
+            verify_pass=not args.no_verify,
+        )
+        args.out.write_text(json.dumps(report, indent=2))
+        print(json.dumps({k: v for k, v in report.items() if k != "rows"}, indent=2))
     else:
         cases = evaluate.load_cases(args.bugs, args.clean, args.target)
         report = evaluate.run(llm, cases, verify_pass=not args.no_verify)
