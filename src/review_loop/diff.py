@@ -4,7 +4,8 @@ import difflib
 import re
 from dataclasses import dataclass, field
 
-_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+# @@ -old_start[,old_count] +new_start[,new_count] @@; an omitted count is 1.
+_HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 @dataclass
@@ -27,28 +28,39 @@ def parse(diff: str) -> dict[str, FileDiff]:
     files: dict[str, FileDiff] = {}
     current: FileDiff | None = None
     new_line = 0
+    # Lines still to come in the current hunk. Inside a hunk every line is content, so an added
+    # line that happens to read "++ x" (raw: "+++ x") isn't mistaken for a file header.
+    old_left = new_left = 0
     for line in diff.splitlines():
-        if line.startswith("+++ "):
+        in_hunk = old_left > 0 or new_left > 0
+        if not in_hunk and line.startswith("+++ "):
             path = line[4:].removeprefix("b/")
             current = None if path == "/dev/null" else files.setdefault(path, FileDiff(path))
             continue
-        if current is None or line.startswith("--- ") or line.startswith("diff --git"):
+        if current is None or (not in_hunk and line.startswith(("--- ", "diff --git"))):
             continue
         current.text += line + "\n"
-        match = _HUNK.match(line)
+        match = None if in_hunk else _HUNK.match(line)
         if match:
-            new_line = int(match.group(1))
+            old_count, new_start, new_count = match.groups()
+            new_line = int(new_start)
+            old_left = int(old_count) if old_count is not None else 1
+            new_left = int(new_count) if new_count is not None else 1
             continue
         if line.startswith("+"):
             current.added.add(new_line)
             current.commentable.add(new_line)
             new_line += 1
+            new_left -= 1
         elif line.startswith(" "):
             current.commentable.add(new_line)
             new_line += 1
+            old_left -= 1
+            new_left -= 1
         elif line.startswith("-"):
             # Exists only on the old side; remember the neighbors it sat between.
             current.deleted_near.update({max(new_line - 1, 1), new_line})
+            old_left -= 1
     return files
 
 
