@@ -130,12 +130,17 @@ def excerpt(content: str, line: int, radius: int = EXCERPT_RADIUS) -> str:
 
 
 def locate(content: str, line: int, evidence: str) -> int | None:
-    """The line where the quoted evidence actually is, preferring the one closest to `line`."""
+    """The line where the quoted evidence starts, preferring the one closest to `line`. Every
+    quoted line must match, in order, on consecutive non-blank lines of the file."""
     wanted = [w.strip() for w in evidence.strip().splitlines() if w.strip()]
     if not wanted:
         return None
-    lines = [ln.strip() for ln in content.splitlines()]
-    hits = [i + 1 for i, text in enumerate(lines) if wanted[0] in text]
+    lines = [(n, text.strip()) for n, text in enumerate(content.splitlines(), 1) if text.strip()]
+    hits = [
+        lines[i][0]
+        for i in range(len(lines) - len(wanted) + 1)
+        if all(quote in lines[i + j][1] for j, quote in enumerate(wanted))
+    ]
     return min(hits, key=lambda n: abs(n - line)) if hits else None
 
 

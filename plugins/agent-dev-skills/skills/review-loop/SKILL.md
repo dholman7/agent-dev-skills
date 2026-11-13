@@ -72,7 +72,7 @@ gh api repos/<owner>/<repo>/pulls/<PR>/reviews --method POST --input review.json
 `review.json` holds `commit_id`, a short summary body ending in `<!-- review-loop sha=<head> -->`, `event: "COMMENT"`, and `comments` (`path`, `line`, `side: "RIGHT"`, `body`). End every comment body with `<!-- review-loop -->` so a later re-review can recognize its own threads.
 
 - Never `APPROVE` or `REQUEST_CHANGES`. A person decides the merge.
-- **Never resolve a thread a person started.** On re-review, a thread whose first comment carries `<!-- review-loop -->` may be resolved, with approval, once the code shows the problem is fixed. Reply with what changed first.
+- **Never resolve a thread a person started.** On re-review, a thread whose first comment carries `<!-- review-loop -->` may be resolved once the code shows the problem is fixed, after a reply saying what changed. The CLI does this only with `--post`, which is the approval to write; without it, it prints and resolves nothing. In an interactive session, ask before resolving.
 
 ## Headless use
 

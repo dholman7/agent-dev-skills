@@ -5,7 +5,7 @@ from typing import Any
 
 from review_loop.diff import make, nearest, parse
 from review_loop.llm import Spend
-from review_loop.review import MARKER, Finding, check_citations, render, review
+from review_loop.review import MARKER, Finding, check_citations, locate, render, review
 
 PATH = "app/routes.py"
 BEFORE = (
@@ -151,3 +151,26 @@ def test_retargeting_a_finding_drops_its_suggestion() -> None:
 
     # It now sits on line 5; "v7 = 70" committed there would overwrite v5.
     assert (moved.line, moved.suggestion) == (5, "")
+
+
+def test_locate_matches_every_line_of_multi_line_evidence() -> None:
+    # Regression: only the first quoted line was matched, so a quote whose first line also
+    # appears elsewhere could land on the wrong place.
+    content = "x = 1\nreturn 200\n\nx = 1\n\nreturn 201\n"
+
+    assert locate(content, 1, "x = 1\nreturn 201") == 4  # the only place both lines follow
+    assert locate(content, 1, "x = 1\nreturn 404") is None  # the second line is nowhere
+    assert locate(content, 5, "x = 1") == 4  # single lines still prefer the nearest hit
+
+
+def test_an_added_line_starting_with_plus_plus_is_content_not_a_header() -> None:
+    # Regression: the raw line "+++ counter" (an added "++ counter") was read as a file header.
+    diff = (
+        "--- a/app/count.c\n+++ b/app/count.c\n@@ -1,2 +1,3 @@\n"
+        " int counter = 0;\n+++ counter;\n return counter;\n"
+    )
+
+    files = parse(diff)
+
+    assert set(files) == {"app/count.c"}
+    assert files["app/count.c"].added == {2}
