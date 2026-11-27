@@ -6,7 +6,7 @@ license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     # 1.x is the documented, settled line; 2.0 shipped 2026-10-21 and is not adopted yet.
-    "anthropic>=1.15,<2",
+    "anthropic>=1.15,<3",
     "httpx>=0.28.0",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.2",
